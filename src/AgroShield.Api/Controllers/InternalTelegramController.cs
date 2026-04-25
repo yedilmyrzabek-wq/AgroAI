@@ -37,10 +37,28 @@ public class InternalTelegramController(
         var status = await telegramLink.GetFarmStatusByChatIdAsync(chat_id);
         return Ok(status ?? (object)new { linked = false });
     }
+
+    [HttpPost("unlink")]
+    public async Task<IActionResult> Unlink([FromBody] TelegramUnlinkRequestDto dto, CancellationToken ct)
+    {
+        await db.Users
+            .Where(u => u.TelegramChatId == dto.ChatId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.TelegramChatId, (long?)null)
+                .SetProperty(u => u.TelegramUsername, (string?)null)
+                .SetProperty(u => u.UpdatedAt, DateTime.UtcNow), ct);
+
+        return Ok(new { unlinked = true });
+    }
 }
 
 public class TelegramLinkRequestDto
 {
     public string Code { get; set; } = null!;
     public long TelegramChatId { get; set; }
+}
+
+public class TelegramUnlinkRequestDto
+{
+    public long ChatId { get; set; }
 }

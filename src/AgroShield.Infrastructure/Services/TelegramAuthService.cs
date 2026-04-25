@@ -31,8 +31,21 @@ public class TelegramAuthService(
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == normalized);
         if (user is null)
         {
-            user = new User { Id = Guid.NewGuid(), Email = normalized, CreatedAt = DateTime.UtcNow, PasswordHash = "" };
+            user = new User
+            {
+                Id = Guid.NewGuid(),
+                Email = normalized,
+                PasswordHash = hasher.Hash(req.Password),
+                Role = Role.Farmer,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            };
             db.Users.Add(user);
+        }
+        else
+        {
+            user.PasswordHash = hasher.Hash(req.Password);
         }
 
         user.IsEmailVerified = true;
