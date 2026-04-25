@@ -11,6 +11,7 @@ namespace AgroShield.Infrastructure.Services;
 public class SensorService(
     AppDbContext db,
     IRealtimePublisher publisher,
+    IMLProxyService mlProxy,
     ILogger<SensorService> logger) : ISensorService
 {
     public async Task<SensorReadingDto> SaveReadingAsync(CreateSensorReadingDto dto, CancellationToken ct = default)
@@ -36,6 +37,8 @@ public class SensorService(
 
         // Create DB records first (sequential, shared DbContext)
         object? firePayload = null;
+        long? ownerTelegramChatId = null;
+
         if (dto.Fire)
         {
             var alert = new Alert
@@ -53,7 +56,9 @@ public class SensorService(
             await db.SaveChangesAsync(ct);
 
             firePayload = new { alertId = alert.Id, farmId = farm.Id, farmName = farm.Name, deviceId = dto.DeviceId, temp = dto.Temp, detectedAt = reading.RecordedAt };
-            logger.LogWarning("[TELEGRAM MOCK] Would send fire alert for farm {FarmId} ({FarmName})", farm.Id, farm.Name);
+
+            var owner = await db.Profiles.FindAsync([farm.OwnerId], ct);
+            ownerTelegramChatId = owner?.TelegramChatId;
         }
 
         if (dto.WaterLevel < 300)
@@ -71,13 +76,18 @@ public class SensorService(
             await db.SaveChangesAsync(ct);
         }
 
-        // Parallel SignalR pushes (data already saved — failures don't matter)
+        // Parallel pushes — data already saved, failures don't matter
         var pushTasks = new List<Task>
         {
             Safe(() => publisher.PushSensorReadingAsync(farm.Id, result), "sensor-push"),
         };
         if (firePayload is not null)
             pushTasks.Add(Safe(() => publisher.PushFireAlertAsync(farm.Id, firePayload), "fire-push"));
+        if (ownerTelegramChatId.HasValue)
+            pushTasks.Add(Safe(() => mlProxy.SendTelegramAsync(
+                ownerTelegramChatId.Value,
+                $"🔥 *Пожар на ферме {farm.Name}!* Проверьте датчики немедленно. Temp={dto.Temp}°C"
+            ), "telegram-fire"));
 
         await Task.WhenAll(pushTasks);
 

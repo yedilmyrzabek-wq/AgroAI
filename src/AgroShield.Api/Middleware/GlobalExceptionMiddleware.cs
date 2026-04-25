@@ -18,6 +18,7 @@ public class GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExcep
         }
         catch (AppException ex)
         {
+            if (context.Response.HasStarted) return;
             context.Response.StatusCode = ex.StatusCode;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsJsonAsync(
@@ -27,6 +28,7 @@ public class GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExcep
         catch (Exception ex)
         {
             logger.LogError(ex, "Unhandled exception: {Message}", ex.Message);
+            if (context.Response.HasStarted) return;
             context.Response.StatusCode = 500;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsJsonAsync(
