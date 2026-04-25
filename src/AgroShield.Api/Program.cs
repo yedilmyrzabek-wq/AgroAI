@@ -13,7 +13,6 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
-using System.Text;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -31,6 +30,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
+builder.Services.AddScoped<IFarmService, FarmService>();
+builder.Services.AddScoped<ISensorService, SensorService>();
+builder.Services.AddScoped<IRealtimePublisher, SignalRPublisher>();
+builder.Services.AddScoped<IClaimsTransformation, SupabaseClaimsTransformation>();
 
 var supabaseUrl = builder.Configuration["Supabase:Url"]!;
 
@@ -48,9 +51,21 @@ builder.Services
             ValidIssuer = $"{supabaseUrl}/auth/v1",
             ValidAudience = "authenticated",
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = ctx =>
+            {
+                var path = ctx.HttpContext.Request.Path;
+                var token = ctx.Request.Query["access_token"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(token) && path.StartsWithSegments("/hubs"))
+                    ctx.Token = token;
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -87,7 +102,7 @@ builder.Services.AddCors(options =>
               .AllowCredentials()));
 
 builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
+    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
 builder.Services.AddHealthChecks()
     .AddNpgSql(connectionString);
@@ -97,7 +112,6 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 var app = builder.Build();
 
-// Auto-migrate and seed
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -118,6 +132,8 @@ app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<SensorsHub>("/hubs/sensors");
+app.MapHub<AlertsHub>("/hubs/alerts");
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
     ResponseWriter = async (ctx, report) =>
