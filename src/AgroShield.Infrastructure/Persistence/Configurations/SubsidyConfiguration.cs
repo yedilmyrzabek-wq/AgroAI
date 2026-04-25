@@ -21,6 +21,9 @@ public class SubsidyConfiguration : IEntityTypeConfiguration<Subsidy>
 
         builder.HasIndex(s => new { s.FarmId, s.Status });
 
+        builder.HasIndex(s => new { s.Status, s.CheckedAt })
+            .HasFilter("checked_at IS NULL");
+
         builder.HasOne(s => s.Farm)
             .WithMany(f => f.Subsidies)
             .HasForeignKey(s => s.FarmId)

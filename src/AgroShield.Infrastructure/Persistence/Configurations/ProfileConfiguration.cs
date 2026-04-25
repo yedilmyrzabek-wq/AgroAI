@@ -18,6 +18,9 @@ public class ProfileConfiguration : IEntityTypeConfiguration<Profile>
         builder.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
         builder.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
 
+        builder.HasIndex(p => p.TelegramChatId)
+            .HasFilter("telegram_chat_id IS NOT NULL");
+
         builder.HasMany(p => p.OwnedFarms)
             .WithOne(f => f.Owner)
             .HasForeignKey(f => f.OwnerId)

@@ -19,7 +19,15 @@ public class FarmConfiguration : IEntityTypeConfiguration<Farm>
         builder.Property(f => f.DeviceId).HasMaxLength(100);
         builder.Property(f => f.PolygonGeoJson).HasColumnType("jsonb").HasDefaultValueSql("'{}'");
         builder.Property(f => f.RiskScore).HasDefaultValue(0);
+        builder.Property(f => f.NdviMean).HasPrecision(5, 4);
         builder.Property(f => f.CreatedAt).HasDefaultValueSql("now()");
         builder.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
+
+        builder.HasIndex(f => f.DeviceId)
+            .HasFilter("device_id IS NOT NULL");
+
+        builder.HasIndex(f => f.RiskScore);
+
+        builder.HasIndex(f => f.OwnerId);
     }
 }

@@ -22,6 +22,9 @@ public class PlantDiagnosisConfiguration : IEntityTypeConfiguration<PlantDiagnos
 
         builder.HasIndex(p => new { p.FarmId, p.CreatedAt });
 
+        builder.HasIndex(p => new { p.IsHealthy, p.CreatedAt })
+            .HasFilter("is_healthy = false");
+
         builder.HasOne(p => p.Farm)
             .WithMany(f => f.PlantDiagnoses)
             .HasForeignKey(p => p.FarmId)
