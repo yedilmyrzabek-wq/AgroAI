@@ -1,12 +1,12 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
 
-COPY AgroShield.slnx .
+COPY NuGet.Config .
 COPY src/AgroShield.Api/AgroShield.Api.csproj src/AgroShield.Api/
 COPY src/AgroShield.Domain/AgroShield.Domain.csproj src/AgroShield.Domain/
 COPY src/AgroShield.Application/AgroShield.Application.csproj src/AgroShield.Application/
 COPY src/AgroShield.Infrastructure/AgroShield.Infrastructure.csproj src/AgroShield.Infrastructure/
-RUN dotnet restore
+RUN dotnet restore src/AgroShield.Api/AgroShield.Api.csproj
 
 COPY src/ src/
 RUN dotnet publish src/AgroShield.Api/AgroShield.Api.csproj -c Release -o /out --no-restore
