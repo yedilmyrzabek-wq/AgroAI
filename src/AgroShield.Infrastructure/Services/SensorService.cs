@@ -57,7 +57,7 @@ public class SensorService(
 
             firePayload = new { alertId = alert.Id, farmId = farm.Id, farmName = farm.Name, deviceId = dto.DeviceId, temp = dto.Temp, detectedAt = reading.RecordedAt };
 
-            var owner = await db.Profiles.FindAsync([farm.OwnerId], ct);
+            var owner = await db.Users.FindAsync(new object[] { farm.OwnerId }, ct);
             ownerTelegramChatId = owner?.TelegramChatId;
         }
 

@@ -26,19 +26,20 @@ public class TelegramController(
     [HttpGet("me")]
     public async Task<IActionResult> Me(CancellationToken ct)
     {
-        var profile = await db.Profiles.FindAsync([currentUser.UserId], ct);
-        if (profile is null)
+        var user = await db.Users.FindAsync([currentUser.UserId], ct);
+        if (user is null)
             return Ok(new { linked = false, farm_name = (string?)null, telegram_chat_id = (long?)null });
 
-        var farmName = profile.FarmId.HasValue
-            ? await db.Farms.Where(f => f.Id == profile.FarmId.Value).Select(f => f.Name).FirstOrDefaultAsync(ct)
-            : null;
+        var farmName = await db.Farms
+            .Where(f => f.OwnerId == user.Id)
+            .Select(f => f.Name)
+            .FirstOrDefaultAsync(ct);
 
         return Ok(new
         {
-            linked = profile.TelegramChatId.HasValue,
-            farm_name = farmName,
-            telegram_chat_id = profile.TelegramChatId,
+            linked           = user.TelegramChatId.HasValue,
+            farm_name        = farmName,
+            telegram_chat_id = user.TelegramChatId,
         });
     }
 }

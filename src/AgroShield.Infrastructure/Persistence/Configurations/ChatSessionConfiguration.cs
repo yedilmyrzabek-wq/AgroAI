@@ -17,8 +17,8 @@ public class ChatSessionConfiguration : IEntityTypeConfiguration<ChatSession>
 
         builder.HasIndex(s => new { s.UserId, s.UpdatedAt });
 
-        builder.HasOne<Profile>()
-            .WithMany(p => p.ChatSessions)
+        builder.HasOne<User>()
+            .WithMany(u => u.ChatSessions)
             .HasForeignKey(s => s.UserId)
             .OnDelete(DeleteBehavior.Cascade);
     }

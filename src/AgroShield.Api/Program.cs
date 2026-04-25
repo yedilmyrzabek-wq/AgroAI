@@ -1,4 +1,3 @@
-using AgroShield.Api.Auth;
 using AgroShield.Api.Filters;
 using AgroShield.Api.Hubs;
 using AgroShield.Api.Middleware;
@@ -6,6 +5,7 @@ using AgroShield.Api.Services;
 using AgroShield.Application.Auth;
 using AgroShield.Application.Services;
 using AgroShield.Application.Validators;
+using AgroShield.Infrastructure.Auth;
 using AgroShield.Infrastructure.BackgroundJobs;
 using AgroShield.Infrastructure.ExternalServices;
 using AgroShield.Infrastructure.Persistence;
@@ -14,7 +14,6 @@ using FluentValidation;
 using FluentValidation.AspNetCore;
 using Hangfire;
 using Hangfire.PostgreSql;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
@@ -22,8 +21,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
-using Serilog.Context;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -47,14 +46,20 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
-builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IFarmService, FarmService>();
 builder.Services.AddScoped<ISensorService, SensorService>();
 builder.Services.AddScoped<IRealtimePublisher, SignalRPublisher>();
-builder.Services.AddScoped<IClaimsTransformation, SupabaseClaimsTransformation>();
 builder.Services.AddScoped<IMLProxyService, MLProxyService>();
 builder.Services.AddScoped<ITelegramLinkService, TelegramLinkService>();
 builder.Services.AddSingleton<IStorageService, StorageService>();
+
+// ── Auth services ─────────────────────────────────────────────────────────
+builder.Services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IVerificationCodeService, VerificationCodeService>();
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ITelegramAuthService, TelegramAuthService>();
 
 // ── Hangfire ──────────────────────────────────────────────────────────────
 builder.Services.AddHangfire(cfg => cfg
@@ -65,6 +70,8 @@ builder.Services.AddHangfireServer();
 builder.Services.AddTransient<EvaluateAnomaliesJob>();
 builder.Services.AddTransient<NdviUpdateJob>();
 builder.Services.AddTransient<WeatherAlertJob>();
+builder.Services.AddTransient<CleanupExpiredCodesJob>();
+builder.Services.AddTransient<CleanupExpiredRefreshTokensJob>();
 
 // ── FluentValidation ──────────────────────────────────────────────────────
 builder.Services.AddValidatorsFromAssembly(typeof(CreateFarmDtoValidator).Assembly);
@@ -85,39 +92,40 @@ void AddMlClient(string name, string? baseUrl, TimeSpan timeout)
     });
 }
 
-AddMlClient("PlantCv",        mlSection["PlantCv"],        TimeSpan.FromSeconds(30));
-AddMlClient("YieldPredictor", mlSection["YieldPredictor"], TimeSpan.FromSeconds(30));
-AddMlClient("AnomalyDetector",mlSection["AnomalyDetector"],TimeSpan.FromSeconds(30));
-AddMlClient("AiAssistant",    mlSection["AiAssistant"],    TimeSpan.FromSeconds(120));
-AddMlClient("SatelliteNdvi",  mlSection["SatelliteNdvi"],  TimeSpan.FromSeconds(60));
-AddMlClient("TelegramBot",    mlSection["TelegramBot"],    TimeSpan.FromSeconds(10));
+AddMlClient("PlantCv",         mlSection["PlantCv"],        TimeSpan.FromSeconds(30));
+AddMlClient("YieldPredictor",  mlSection["YieldPredictor"], TimeSpan.FromSeconds(30));
+AddMlClient("AnomalyDetector", mlSection["AnomalyDetector"],TimeSpan.FromSeconds(30));
+AddMlClient("AiAssistant",     mlSection["AiAssistant"],    TimeSpan.FromSeconds(120));
+AddMlClient("SatelliteNdvi",   mlSection["SatelliteNdvi"],  TimeSpan.FromSeconds(60));
+AddMlClient("TelegramBot",     mlSection["TelegramBot"],    TimeSpan.FromSeconds(10));
 
 // ── Auth ──────────────────────────────────────────────────────────────────
-var supabaseUrl = builder.Configuration["Supabase:Url"]!;
+var jwtSection = builder.Configuration.GetSection("Jwt");
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    .AddJwtBearer(opt =>
     {
-        options.Authority = $"{supabaseUrl}/auth/v1";
-        options.MapInboundClaims = false; // keep JWT claim names as-is (sub, email, role...)
-        options.TokenValidationParameters = new TokenValidationParameters
+        opt.MapInboundClaims = false;
+        opt.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer           = true,
+            ValidIssuer              = jwtSection["Issuer"],
             ValidateAudience         = true,
+            ValidAudience            = jwtSection["Audience"],
             ValidateLifetime         = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer              = $"{supabaseUrl}/auth/v1",
-            ValidAudience            = "authenticated",
-            NameClaimType            = "sub",
+            IssuerSigningKey         = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtSection["Secret"]!)),
+            ClockSkew                = TimeSpan.Zero,
+            RoleClaimType            = "role",
         };
-        options.Events = new JwtBearerEvents
+        opt.Events = new JwtBearerEvents
         {
             OnMessageReceived = ctx =>
             {
-                var path  = ctx.HttpContext.Request.Path;
                 var token = ctx.Request.Query["access_token"].FirstOrDefault();
-                if (!string.IsNullOrEmpty(token) && path.StartsWithSegments("/hubs"))
+                if (!string.IsNullOrEmpty(token) && ctx.HttpContext.Request.Path.StartsWithSegments("/hubs"))
                     ctx.Token = token;
                 return Task.CompletedTask;
             }
@@ -145,7 +153,7 @@ builder.Services.AddSwaggerGen(c =>
         Scheme      = "bearer",
         BearerFormat = "JWT",
         In          = ParameterLocation.Header,
-        Description = "JWT от Supabase Auth. Формат: Bearer {token}",
+        Description = "JWT токен. Формат: Bearer {token}",
     });
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
@@ -173,7 +181,7 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod()
               .AllowCredentials()));
 
-// ── JSON (camelCase for frontend, MLProxyService uses its own snake_case) ─
+// ── JSON ──────────────────────────────────────────────────────────────────
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
 
@@ -191,11 +199,11 @@ void AddMlHealthCheck(string name, string? url)
             timeout: TimeSpan.FromSeconds(3));
 }
 
-AddMlHealthCheck("plant-cv",        mlSection["PlantCv"]);
-AddMlHealthCheck("yield-predictor", mlSection["YieldPredictor"]);
-AddMlHealthCheck("anomaly-detector",mlSection["AnomalyDetector"]);
-AddMlHealthCheck("satellite-ndvi",  mlSection["SatelliteNdvi"]);
-AddMlHealthCheck("telegram-bot",    mlSection["TelegramBot"]);
+AddMlHealthCheck("plant-cv",         mlSection["PlantCv"]);
+AddMlHealthCheck("yield-predictor",  mlSection["YieldPredictor"]);
+AddMlHealthCheck("anomaly-detector", mlSection["AnomalyDetector"]);
+AddMlHealthCheck("satellite-ndvi",   mlSection["SatelliteNdvi"]);
+AddMlHealthCheck("telegram-bot",     mlSection["TelegramBot"]);
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
@@ -226,9 +234,11 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
     Authorization = [new HangfireBasicAuthFilter(hangfireUser, hangfirePass)],
 });
 
-RecurringJob.AddOrUpdate<EvaluateAnomaliesJob>("evaluate-anomalies", j => j.ExecuteAsync(), "*/10 * * * *");
-RecurringJob.AddOrUpdate<NdviUpdateJob>       ("ndvi-update",        j => j.ExecuteAsync(), "0 * * * *");
-RecurringJob.AddOrUpdate<WeatherAlertJob>     ("weather-alert",      j => j.ExecuteAsync(), "0 6 * * *");
+RecurringJob.AddOrUpdate<EvaluateAnomaliesJob>      ("evaluate-anomalies", j => j.ExecuteAsync(), "*/10 * * * *");
+RecurringJob.AddOrUpdate<NdviUpdateJob>             ("ndvi-update",        j => j.ExecuteAsync(), "0 * * * *");
+RecurringJob.AddOrUpdate<WeatherAlertJob>           ("weather-alert",      j => j.ExecuteAsync(), "0 6 * * *");
+RecurringJob.AddOrUpdate<CleanupExpiredCodesJob>    ("cleanup-codes",      j => j.ExecuteAsync(), Cron.Hourly);
+RecurringJob.AddOrUpdate<CleanupExpiredRefreshTokensJob>("cleanup-refresh", j => j.ExecuteAsync(), Cron.Daily);
 
 app.UseSwagger();
 app.UseSwaggerUI(c =>

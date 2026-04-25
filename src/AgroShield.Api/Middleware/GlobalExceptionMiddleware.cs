@@ -39,10 +39,12 @@ public class GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExcep
 
     private static string ErrorCode(AppException ex) => ex switch
     {
-        NotFoundException       => "not_found",
-        Domain.Exceptions.ValidationException  => "validation_error",
-        ForbiddenException      => "forbidden",
+        NotFoundException        => "not_found",
+        Domain.Exceptions.ValidationException => "validation_error",
+        UnauthorizedException    => "unauthorized",
+        ForbiddenException       => "forbidden",
+        ConflictException        => "conflict",
         ExternalServiceException => "service_unavailable",
-        _                       => "internal_error"
+        _                        => "internal_error"
     };
 }

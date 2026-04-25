@@ -27,7 +27,6 @@ public class FarmConfiguration : IEntityTypeConfiguration<Farm>
             .HasFilter("device_id IS NOT NULL");
 
         builder.HasIndex(f => f.RiskScore);
-
         builder.HasIndex(f => f.OwnerId);
     }
 }

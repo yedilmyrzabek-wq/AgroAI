@@ -6,9 +6,7 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace AgroShield.Api.Services;
 
-public class TelegramLinkService(
-    IMemoryCache cache,
-    AppDbContext db) : ITelegramLinkService
+public class TelegramLinkService(IMemoryCache cache, AppDbContext db) : ITelegramLinkService
 {
     private static string CacheKey(string code) => $"tg-link-{code}";
 
@@ -24,25 +22,21 @@ public class TelegramLinkService(
         if (!cache.TryGetValue(CacheKey(code), out Guid userId))
             return false;
 
-        var profile = await db.Profiles.FindAsync([userId]);
-        if (profile is null) return false;
+        var user = await db.Users.FindAsync([userId]);
+        if (user is null) return false;
 
-        profile.TelegramChatId = chatId;
+        user.TelegramChatId = chatId;
         await db.SaveChangesAsync();
-
         cache.Remove(CacheKey(code));
         return true;
     }
 
     public async Task<FarmStatusDto?> GetFarmStatusByChatIdAsync(long chatId)
     {
-        var profile = await db.Profiles.FirstOrDefaultAsync(p => p.TelegramChatId == chatId);
-        if (profile is null) return null;
+        var user = await db.Users.FirstOrDefaultAsync(u => u.TelegramChatId == chatId);
+        if (user is null) return null;
 
-        var farm = profile.FarmId.HasValue
-            ? await db.Farms.FindAsync([profile.FarmId.Value])
-            : await db.Farms.FirstOrDefaultAsync(f => f.OwnerId == profile.UserId);
-
+        var farm = await db.Farms.FirstOrDefaultAsync(f => f.OwnerId == user.Id);
         if (farm is null) return new FarmStatusDto(true, null, null, null, null, null, null);
 
         var latest = await db.SensorReadings

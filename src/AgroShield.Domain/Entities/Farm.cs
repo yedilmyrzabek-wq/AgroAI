@@ -18,7 +18,7 @@ public class Farm
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    public Profile Owner { get; set; } = null!;
+    public User Owner { get; set; } = null!;
     public ICollection<Sensor> Sensors { get; set; } = [];
     public ICollection<Animal> Animals { get; set; } = [];
     public ICollection<Subsidy> Subsidies { get; set; } = [];

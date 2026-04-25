@@ -19,12 +19,11 @@ public class AlertConfiguration : IEntityTypeConfiguration<Alert>
 
         builder.HasIndex(a => new { a.UserId, a.IsRead, a.CreatedAt });
 
-        // SignalR push and fire-alert queries filter by farm_id
         builder.HasIndex(a => new { a.FarmId, a.CreatedAt })
             .HasFilter("farm_id IS NOT NULL");
 
-        builder.HasOne<Profile>()
-            .WithMany(p => p.Alerts)
+        builder.HasOne<User>()
+            .WithMany(u => u.Alerts)
             .HasForeignKey(a => a.UserId)
             .OnDelete(DeleteBehavior.SetNull)
             .IsRequired(false);

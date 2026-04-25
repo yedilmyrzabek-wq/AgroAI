@@ -20,12 +20,12 @@ public class InternalTelegramController(
         if (!linked)
             return BadRequest(new { error = "invalid_code", message = "Code not found or expired" });
 
-        var profile = await db.Profiles
-            .FirstOrDefaultAsync(p => p.TelegramChatId == dto.TelegramChatId, ct);
+        var user = await db.Users
+            .FirstOrDefaultAsync(u => u.TelegramChatId == dto.TelegramChatId, ct);
 
         string? farmName = null;
-        if (profile?.FarmId.HasValue == true)
-            farmName = await db.Farms.Where(f => f.Id == profile.FarmId.Value)
+        if (user is not null)
+            farmName = await db.Farms.Where(f => f.OwnerId == user.Id)
                 .Select(f => f.Name).FirstOrDefaultAsync(ct);
 
         return Ok(new { linked = true, farm_name = farmName });
