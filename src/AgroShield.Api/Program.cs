@@ -1,4 +1,7 @@
+using AgroShield.Application.Auth;
+using AgroShield.Application.Services;
 using AgroShield.Infrastructure.Persistence;
+using AgroShield.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +23,10 @@ var connectionString = builder.Configuration.GetConnectionString("Postgres")!;
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString)
            .UseSnakeCaseNamingConvention());
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
+builder.Services.AddScoped<IProfileService, ProfileService>();
 
 var supabaseUrl = builder.Configuration["Supabase:Url"]!;
 var jwtSecret = builder.Configuration["Supabase:JwtSecret"]!;
@@ -86,6 +93,20 @@ var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 var app = builder.Build();
+
+// Auto-migrate and seed
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+}
+
+var envName = app.Environment.EnvironmentName;
+var seedFlag = Environment.GetEnvironmentVariable("SEED_DATA");
+if (envName != "Production" || seedFlag == "true")
+{
+    await SeedData.InitializeAsync(app.Services);
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();
