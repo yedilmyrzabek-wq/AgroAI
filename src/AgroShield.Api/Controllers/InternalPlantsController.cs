@@ -18,10 +18,12 @@ public class InternalPlantsController(
     [HttpPost("diagnose-by-chat")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> DiagnoseByChat(
-        [FromForm] IFormFile file,
-        [FromForm(Name = "chat_id")] long chatId,
+        [FromForm] DiagnoseByChataRequest request,
         CancellationToken ct)
     {
+        var file = request.File;
+        var chatId = request.ChatId;
+
         var user = await db.Users
             .FirstOrDefaultAsync(u => u.TelegramChatId == chatId, ct);
 
@@ -83,4 +85,10 @@ public class InternalPlantsController(
             model_version = result.ModelVersion,
         });
     }
+}
+
+public class DiagnoseByChataRequest
+{
+    public IFormFile File { get; set; } = null!;
+    public long ChatId { get; set; }
 }
