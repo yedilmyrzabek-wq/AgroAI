@@ -1,8 +1,10 @@
 using AgroShield.Api.Auth;
 using AgroShield.Api.Hubs;
+using AgroShield.Api.Middleware;
 using AgroShield.Api.Services;
 using AgroShield.Application.Auth;
 using AgroShield.Application.Services;
+using AgroShield.Infrastructure.ExternalServices;
 using AgroShield.Infrastructure.Persistence;
 using AgroShield.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication;
@@ -34,6 +36,28 @@ builder.Services.AddScoped<IFarmService, FarmService>();
 builder.Services.AddScoped<ISensorService, SensorService>();
 builder.Services.AddScoped<IRealtimePublisher, SignalRPublisher>();
 builder.Services.AddScoped<IClaimsTransformation, SupabaseClaimsTransformation>();
+builder.Services.AddScoped<IMLProxyService, MLProxyService>();
+
+var internalApiKey = builder.Configuration["Security:InternalApiKey"] ?? "";
+var mlSection = builder.Configuration.GetSection("MLServices");
+
+void AddMlClient(string name, string? baseUrl, TimeSpan timeout)
+{
+    builder.Services.AddHttpClient(name, c =>
+    {
+        if (!string.IsNullOrEmpty(baseUrl)) c.BaseAddress = new Uri(baseUrl);
+        c.Timeout = timeout;
+        if (!string.IsNullOrEmpty(internalApiKey))
+            c.DefaultRequestHeaders.Add("X-Internal-Key", internalApiKey);
+    });
+}
+
+AddMlClient("PlantCv",        mlSection["PlantCv"],        TimeSpan.FromSeconds(30));
+AddMlClient("YieldPredictor", mlSection["YieldPredictor"], TimeSpan.FromSeconds(30));
+AddMlClient("AnomalyDetector",mlSection["AnomalyDetector"],TimeSpan.FromSeconds(30));
+AddMlClient("AiAssistant",    mlSection["AiAssistant"],    TimeSpan.FromSeconds(120));
+AddMlClient("SatelliteNdvi",  mlSection["SatelliteNdvi"],  TimeSpan.FromSeconds(60));
+AddMlClient("TelegramBot",    mlSection["TelegramBot"],    TimeSpan.FromSeconds(10));
 
 var supabaseUrl = builder.Configuration["Supabase:Url"]!;
 
@@ -125,6 +149,7 @@ if (envName != "Production" || seedFlag == "true")
     await SeedData.InitializeAsync(app.Services);
 }
 
+app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
 
