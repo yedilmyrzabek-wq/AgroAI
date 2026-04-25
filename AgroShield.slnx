@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AgroShield.Api/AgroShield.Api.csproj" />
+    <Project Path="src/AgroShield.Application/AgroShield.Application.csproj" />
+    <Project Path="src/AgroShield.Domain/AgroShield.Domain.csproj" />
+    <Project Path="src/AgroShield.Infrastructure/AgroShield.Infrastructure.csproj" />
+  </Folder>
+</Solution>
