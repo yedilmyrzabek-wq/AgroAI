@@ -501,6 +501,9 @@ skills-lock.json
 .idea/
 *.sln.dotSettings.user
 
+**/appsettings.json
+**/appsettings.Development.json
+
 # Файлы операционной системы
 Thumbs.db
 Desktop.ini
