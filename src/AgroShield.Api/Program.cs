@@ -1,7 +1,11 @@
+using AgroShield.Api.Auth;
+using AgroShield.Api.Hubs;
+using AgroShield.Api.Services;
 using AgroShield.Application.Auth;
 using AgroShield.Application.Services;
 using AgroShield.Infrastructure.Persistence;
 using AgroShield.Infrastructure.Services;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
@@ -29,12 +33,12 @@ builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 
 var supabaseUrl = builder.Configuration["Supabase:Url"]!;
-var jwtSecret = builder.Configuration["Supabase:JwtSecret"]!;
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        options.Authority = $"{supabaseUrl}/auth/v1";
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -43,7 +47,6 @@ builder.Services
             ValidateIssuerSigningKey = true,
             ValidIssuer = $"{supabaseUrl}/auth/v1",
             ValidAudience = "authenticated",
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
         };
     });
 
