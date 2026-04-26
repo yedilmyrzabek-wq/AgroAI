@@ -1,16 +1,23 @@
 using AgroShield.Application.Auth;
 using AgroShield.Application.DTOs;
 using AgroShield.Application.DTOs.Farms;
+using AgroShield.Application.DTOs.ML;
 using AgroShield.Application.DTOs.Sensors;
 using AgroShield.Application.Services;
 using AgroShield.Domain.Entities;
 using AgroShield.Domain.Enums;
 using AgroShield.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace AgroShield.Infrastructure.Services;
 
-public class FarmService(AppDbContext db, ICurrentUserAccessor currentUser) : IFarmService
+public class FarmService(
+    AppDbContext db,
+    ICurrentUserAccessor currentUser,
+    IMLProxyService mlProxy,
+    ILogger<FarmService> logger) : IFarmService
 {
     public async Task<PagedResultDto<FarmListItemDto>> GetAllAsync(FarmFilterDto f, CancellationToken ct = default)
     {
@@ -82,7 +89,8 @@ public class FarmService(AppDbContext db, ICurrentUserAccessor currentUser) : IF
             farm.DeviceId, farm.PolygonGeoJson,
             farm.OwnerId, farm.Owner.FullName,
             farm.CreatedAt, farm.UpdatedAt,
-            latest, activeSubsidies, activeAnomalies);
+            latest, activeSubsidies, activeAnomalies,
+            farm.NdviMean, farm.ActiveAreaFromNdvi, farm.NdviUpdatedAt);
     }
 
     public async Task<FarmDetailDto> CreateAsync(CreateFarmDto dto, CancellationToken ct = default)
@@ -105,7 +113,61 @@ public class FarmService(AppDbContext db, ICurrentUserAccessor currentUser) : IF
         };
         db.Farms.Add(farm);
         await db.SaveChangesAsync(ct);
+
+        _ = Task.Run(() => RefreshNdviAsync(farm.Id));
+
         return await GetByIdAsync(farm.Id, ct);
+    }
+
+    public async Task RefreshNdviAsync(Guid farmId, CancellationToken ct = default)
+    {
+        var farm = await db.Farms.FindAsync([farmId], ct);
+        if (farm is null) return;
+
+        try
+        {
+            var polygon = ParsePolygon(farm.PolygonGeoJson, farm.Lat, farm.Lng);
+            if (polygon.Count < 3) return;
+
+            var now = DateTime.UtcNow;
+            var ndvi = await mlProxy.GetNdviAsync(new NdviRequestDto
+            {
+                Polygon  = polygon,
+                DateFrom = now.AddDays(-30).ToString("yyyy-MM-dd"),
+                DateTo   = now.ToString("yyyy-MM-dd"),
+            }, ct);
+
+            farm.NdviMean          = ndvi.MeanNdvi;
+            farm.ActiveAreaFromNdvi = ndvi.ActiveAreaHectares;
+            farm.NdviUpdatedAt      = now;
+            farm.UpdatedAt          = now;
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "NDVI refresh failed for farm {FarmId}", farmId);
+        }
+    }
+
+    private static List<double[]> ParsePolygon(string geoJson, double lat, double lng)
+    {
+        try
+        {
+            var doc = JsonSerializer.Deserialize<JsonElement>(geoJson);
+            if (doc.TryGetProperty("coordinates", out var coords))
+            {
+                var points = new List<double[]>();
+                foreach (var pt in coords[0].EnumerateArray())
+                {
+                    var arr = pt.EnumerateArray().ToArray();
+                    points.Add([arr[1].GetDouble(), arr[0].GetDouble()]);
+                }
+                return points;
+            }
+        }
+        catch { }
+        const double d = 0.01;
+        return [[lat - d, lng - d], [lat - d, lng + d], [lat + d, lng + d], [lat + d, lng - d], [lat - d, lng - d]];
     }
 
     public async Task<FarmDetailDto> UpdateAsync(Guid id, UpdateFarmDto dto, CancellationToken ct = default)

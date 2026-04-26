@@ -18,11 +18,12 @@ public class NdviUpdateJob(
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var ml = scope.ServiceProvider.GetRequiredService<IMLProxyService>();
 
+        var weekAgo = DateTime.UtcNow.AddDays(-7);
         var farms = await db.Farms
-            .Where(f => f.RiskScore >= 50)
+            .Where(f => f.NdviUpdatedAt == null || f.NdviUpdatedAt < weekAgo)
             .ToListAsync();
 
-        logger.LogInformation("NdviUpdateJob: updating NDVI for {Count} high-risk farms", farms.Count);
+        logger.LogInformation("NdviUpdateJob: updating NDVI for {Count} farms", farms.Count);
 
         var now = DateTime.UtcNow;
         foreach (var farm in farms)
@@ -37,15 +38,19 @@ public class NdviUpdateJob(
                     DateTo   = now.ToString("yyyy-MM-dd"),
                 });
 
-                farm.NdviMean = ndvi.MeanNdvi;
+                farm.NdviMean           = ndvi.MeanNdvi;
+                farm.ActiveAreaFromNdvi = ndvi.ActiveAreaHectares;
+                farm.NdviUpdatedAt      = now;
+                farm.UpdatedAt          = now;
+
+                await db.SaveChangesAsync();
+                await Task.Delay(2000);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "NdviUpdateJob failed for farm {FarmId}", farm.Id);
             }
         }
-
-        await db.SaveChangesAsync();
         logger.LogInformation("NdviUpdateJob: completed");
     }
 

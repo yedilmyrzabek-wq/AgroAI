@@ -15,6 +15,8 @@ public class Farm
     public string PolygonGeoJson { get; set; } = "{}";
     public int RiskScore { get; set; }
     public decimal? NdviMean { get; set; }
+    public decimal? ActiveAreaFromNdvi { get; set; }
+    public DateTime? NdviUpdatedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

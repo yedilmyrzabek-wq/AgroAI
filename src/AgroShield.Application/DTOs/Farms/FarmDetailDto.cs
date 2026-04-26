@@ -20,4 +20,7 @@ public record FarmDetailDto(
     DateTime UpdatedAt,
     SensorReadingDto? LatestReading,
     int ActiveSubsidyCount,
-    int ActiveAnomalyCount);
+    int ActiveAnomalyCount,
+    decimal? NdviMean,
+    decimal? ActiveAreaFromNdvi,
+    DateTime? NdviUpdatedAt);

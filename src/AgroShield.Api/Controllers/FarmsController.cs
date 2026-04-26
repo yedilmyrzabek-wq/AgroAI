@@ -43,4 +43,16 @@ public class FarmsController(IFarmService farms) : ControllerBase
         try { await farms.DeleteAsync(id, ct); return NoContent(); }
         catch (KeyNotFoundException ex) { return NotFound(new { error = "not_found", message = ex.Message }); }
     }
+
+    [HttpPost("{id:guid}/refresh-ndvi")]
+    [Authorize(Roles = "Inspector,Admin")]
+    public async Task<IActionResult> RefreshNdvi(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            await farms.RefreshNdviAsync(id, ct);
+            return Ok(await farms.GetByIdAsync(id, ct));
+        }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = "not_found", message = ex.Message }); }
+    }
 }

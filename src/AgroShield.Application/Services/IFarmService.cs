@@ -10,4 +10,5 @@ public interface IFarmService
     Task<FarmDetailDto> CreateAsync(CreateFarmDto dto, CancellationToken ct = default);
     Task<FarmDetailDto> UpdateAsync(Guid id, UpdateFarmDto dto, CancellationToken ct = default);
     Task DeleteAsync(Guid id, CancellationToken ct = default);
+    Task RefreshNdviAsync(Guid farmId, CancellationToken ct = default);
 }
