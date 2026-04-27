@@ -19,4 +19,9 @@ public class SignalRPublisher(
 
     public Task PushRfidScanAsync(Guid farmId, object payload) =>
         sensorsHub.Clients.Group(HubGroups.Farm(farmId)).SendAsync("RfidScanned", payload);
+
+    public Task PushBatchFrozenAsync(Guid farmId, object payload) =>
+        Task.WhenAll(
+            alertsHub.Clients.Group(HubGroups.Farm(farmId)).SendAsync("BatchFrozen", payload),
+            alertsHub.Clients.Group(HubGroups.Inspectors).SendAsync("BatchFrozen", payload));
 }

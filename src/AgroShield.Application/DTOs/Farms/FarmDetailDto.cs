@@ -23,4 +23,9 @@ public record FarmDetailDto(
     int ActiveAnomalyCount,
     decimal? NdviMean,
     decimal? ActiveAreaFromNdvi,
-    DateTime? NdviUpdatedAt);
+    DateTime? NdviUpdatedAt,
+    // v3 extensions
+    object? NdviHistory = null,
+    object? LivestockSummary = null,
+    DateTime? FertilizerLastRecommendationAt = null,
+    int ActiveBatchesCount = 0);

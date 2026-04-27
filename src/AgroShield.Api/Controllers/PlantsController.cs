@@ -63,14 +63,20 @@ public class PlantsController(
     [HttpGet("diagnoses")]
     public async Task<IActionResult> GetDiagnoses([FromQuery] PlantDiagnosisFilterDto filter, CancellationToken ct)
     {
-        var q = db.PlantDiagnoses.AsQueryable();
-        if (filter.FarmId.HasValue) q = q.Where(d => d.FarmId == filter.FarmId.Value);
-        if (!string.IsNullOrEmpty(filter.Severity)) q = q.Where(d => d.Severity == filter.Severity);
+        var q = db.PlantDiagnoses.Join(db.Farms, d => d.FarmId, f => f.Id, (d, f) => new { d, f }).AsQueryable();
+
+        if (currentUser.Role == Domain.Enums.Role.Farmer)
+            q = q.Where(x => x.f.OwnerId == currentUser.UserId);
+        else if (currentUser.Role == Domain.Enums.Role.Inspector && !string.IsNullOrWhiteSpace(currentUser.Region))
+            q = q.Where(x => x.f.Region == currentUser.Region);
+
+        if (filter.FarmId.HasValue) q = q.Where(x => x.d.FarmId == filter.FarmId.Value);
+        if (!string.IsNullOrEmpty(filter.Severity)) q = q.Where(x => x.d.Severity == filter.Severity);
 
         var items = await q
-            .OrderByDescending(d => d.CreatedAt)
-            .Take(Math.Clamp(filter.Limit, 1, 100))
-            .Select(d => ToDto(d))
+            .OrderByDescending(x => x.d.CreatedAt)
+            .Take(Math.Clamp(filter.Limit, 1, 500))
+            .Select(x => ToDto(x.d))
             .ToListAsync(ct);
 
         return Ok(items);

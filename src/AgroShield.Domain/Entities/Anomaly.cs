@@ -16,5 +16,12 @@ public class Anomaly
     public Guid? ResolvedByUserId { get; set; }
     public string? ResolutionNotes { get; set; }
 
+    public int? GraphRiskScore { get; set; }
+    public Guid[]? RelatedFarmIds { get; set; }
+    public string? MlFeaturesJson { get; set; }
+
+    public int FrozenBatchesCount { get; set; }
+    public DateTime? LastFreezeAt { get; set; }
+
     public Farm Farm { get; set; } = null!;
 }

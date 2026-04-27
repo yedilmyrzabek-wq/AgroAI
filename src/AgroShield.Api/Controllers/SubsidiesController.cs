@@ -1,3 +1,4 @@
+using AgroShield.Application.Auth;
 using AgroShield.Application.DTOs.ML;
 using AgroShield.Application.DTOs.Subsidies;
 using AgroShield.Application.Services;
@@ -20,7 +21,8 @@ namespace AgroShield.Api.Controllers;
 public class SubsidiesController(
     AppDbContext db,
     IMLProxyService ml,
-    IHubContext<AlertsHub> alertsHub) : ControllerBase
+    IHubContext<AlertsHub> alertsHub,
+    ICurrentUserAccessor user) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> GetAll(
@@ -29,6 +31,12 @@ public class SubsidiesController(
         CancellationToken ct)
     {
         var q = db.Subsidies.Include(s => s.Farm).AsQueryable();
+
+        if (user.Role == Role.Farmer)
+            q = q.Where(s => s.Farm.OwnerId == user.UserId);
+        else if (user.Role == Role.Inspector && !string.IsNullOrWhiteSpace(user.Region))
+            q = q.Where(s => s.Farm.Region == user.Region);
+
         if (farmId.HasValue) q = q.Where(s => s.FarmId == farmId.Value);
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<SubsidyStatus>(status, true, out var st))
             q = q.Where(s => s.Status == st);

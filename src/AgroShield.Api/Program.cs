@@ -37,9 +37,11 @@ builder.Host.UseSerilog((ctx, cfg) =>
 var connectionString = builder.Configuration.GetConnectionString("Postgres")!;
 
 // ── DB ────────────────────────────────────────────────────────────────────
-builder.Services.AddDbContext<AppDbContext>(options =>
+builder.Services.AddSingleton<AgroShield.Infrastructure.Persistence.AnomalyEscalationInterceptor>();
+builder.Services.AddDbContext<AppDbContext>((sp, options) =>
     options.UseNpgsql(connectionString)
-           .UseSnakeCaseNamingConvention());
+           .UseSnakeCaseNamingConvention()
+           .AddInterceptors(sp.GetRequiredService<AgroShield.Infrastructure.Persistence.AnomalyEscalationInterceptor>()));
 
 // ── Core services ─────────────────────────────────────────────────────────
 builder.Services.AddHttpContextAccessor();
@@ -52,6 +54,11 @@ builder.Services.AddScoped<IRealtimePublisher, SignalRPublisher>();
 builder.Services.AddScoped<IMLProxyService, MLProxyService>();
 builder.Services.AddScoped<ITelegramLinkService, TelegramLinkService>();
 builder.Services.AddSingleton<IStorageService, StorageService>();
+builder.Services.AddScoped<IBatchFreezeService, BatchFreezeService>();
+builder.Services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
+builder.Services.AddScoped<IClimateRiskService, ClimateRiskService>();
+builder.Services.AddScoped<IVoiceEscalationService, VoiceEscalationService>();
+builder.Services.AddScoped<IDemoSeedService, IdealDemoSeed>();
 
 // ── Auth services ─────────────────────────────────────────────────────────
 builder.Services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
@@ -72,6 +79,10 @@ builder.Services.AddTransient<NdviUpdateJob>();
 builder.Services.AddTransient<WeatherAlertJob>();
 builder.Services.AddTransient<CleanupExpiredCodesJob>();
 builder.Services.AddTransient<CleanupExpiredRefreshTokensJob>();
+builder.Services.AddTransient<NdviDropDetectionJob>();
+builder.Services.AddTransient<WeeklyReportJob>();
+builder.Services.AddTransient<SupplyChainAnomalyJob>();
+builder.Services.AddTransient<DailyTelegramDigestJob>();
 
 // ── FluentValidation ──────────────────────────────────────────────────────
 builder.Services.AddValidatorsFromAssembly(typeof(CreateFarmDtoValidator).Assembly);
@@ -92,12 +103,24 @@ void AddMlClient(string name, string? baseUrl, TimeSpan timeout)
     });
 }
 
-AddMlClient("PlantCv",         mlSection["PlantCv"],        TimeSpan.FromSeconds(30));
-AddMlClient("YieldPredictor",  mlSection["YieldPredictor"], TimeSpan.FromSeconds(30));
-AddMlClient("AnomalyDetector", mlSection["AnomalyDetector"],TimeSpan.FromSeconds(30));
-AddMlClient("AiAssistant",     mlSection["AiAssistant"],    TimeSpan.FromSeconds(120));
-AddMlClient("SatelliteNdvi",   mlSection["SatelliteNdvi"],  TimeSpan.FromSeconds(60));
-AddMlClient("TelegramBot",     mlSection["TelegramBot"],    TimeSpan.FromSeconds(10));
+AddMlClient("PlantCv",            mlSection["PlantCv"],            TimeSpan.FromSeconds(30));
+AddMlClient("YieldPredictor",     mlSection["YieldPredictor"],     TimeSpan.FromSeconds(30));
+AddMlClient("AnomalyDetector",    mlSection["AnomalyDetector"],    TimeSpan.FromSeconds(30));
+AddMlClient("AiAssistant",        mlSection["AiAssistant"],        TimeSpan.FromSeconds(120));
+AddMlClient("SatelliteNdvi",      mlSection["SatelliteNdvi"],      TimeSpan.FromSeconds(60));
+AddMlClient("TelegramBot",        mlSection["TelegramBot"],        TimeSpan.FromSeconds(10));
+AddMlClient("LivestockMonitor",   mlSection["LivestockMonitor"],   TimeSpan.FromSeconds(60));
+AddMlClient("FertilizerAdvisor",  mlSection["FertilizerAdvisor"],  TimeSpan.FromSeconds(15));
+AddMlClient("SupplyChainTracker", mlSection["SupplyChainTracker"], TimeSpan.FromSeconds(15));
+
+// self-call client for WeeklyReportJob
+var selfPort = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+builder.Services.AddHttpClient("SelfInternal", c =>
+{
+    c.BaseAddress = new Uri($"http://localhost:{selfPort}");
+    if (!string.IsNullOrEmpty(internalApiKey))
+        c.DefaultRequestHeaders.Add("X-Internal-Key", internalApiKey);
+});
 
 // ── Auth ──────────────────────────────────────────────────────────────────
 var jwtSection = builder.Configuration.GetSection("Jwt");
@@ -234,11 +257,15 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
     Authorization = [new HangfireBasicAuthFilter(hangfireUser, hangfirePass)],
 });
 
-RecurringJob.AddOrUpdate<EvaluateAnomaliesJob>      ("evaluate-anomalies", j => j.ExecuteAsync(), "*/10 * * * *");
-RecurringJob.AddOrUpdate<NdviUpdateJob>             ("ndvi-update",        j => j.ExecuteAsync(), "0 * * * *");
-RecurringJob.AddOrUpdate<WeatherAlertJob>           ("weather-alert",      j => j.ExecuteAsync(), "0 6 * * *");
-RecurringJob.AddOrUpdate<CleanupExpiredCodesJob>    ("cleanup-codes",      j => j.ExecuteAsync(), Cron.Hourly);
-RecurringJob.AddOrUpdate<CleanupExpiredRefreshTokensJob>("cleanup-refresh", j => j.ExecuteAsync(), Cron.Daily);
+RecurringJob.AddOrUpdate<EvaluateAnomaliesJob>      ("evaluate-anomalies",    j => j.ExecuteAsync(), "*/10 * * * *");
+RecurringJob.AddOrUpdate<NdviUpdateJob>             ("ndvi-update",           j => j.ExecuteAsync(), "0 2 * * 0");
+RecurringJob.AddOrUpdate<NdviDropDetectionJob>      ("ndvi-drop-detection",   j => j.ExecuteAsync(), "0 8 * * *");
+RecurringJob.AddOrUpdate<WeatherAlertJob>           ("weather-alert",         j => j.ExecuteAsync(), "0 6 * * *");
+RecurringJob.AddOrUpdate<WeeklyReportJob>           ("weekly-reports",        j => j.ExecuteAsync(), "0 9 * * 1");
+RecurringJob.AddOrUpdate<SupplyChainAnomalyJob>     ("supply-chain-anomaly",  j => j.ExecuteAsync(), "0 6 * * *");
+RecurringJob.AddOrUpdate<DailyTelegramDigestJob>    ("daily-telegram-digest", j => j.ExecuteAsync(), "0 7 * * *", new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+RecurringJob.AddOrUpdate<CleanupExpiredCodesJob>    ("cleanup-codes",         j => j.ExecuteAsync(), Cron.Hourly);
+RecurringJob.AddOrUpdate<CleanupExpiredRefreshTokensJob>("cleanup-refresh",   j => j.ExecuteAsync(), Cron.Daily);
 
 app.UseSwagger();
 app.UseSwaggerUI(c =>
@@ -249,6 +276,7 @@ app.UseSwaggerUI(c =>
 
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
+app.UseMiddleware<InternalUserContextMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<SensorsHub>("/hubs/sensors");

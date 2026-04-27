@@ -16,13 +16,15 @@ public class JwtTokenService(IConfiguration config) : IJwtTokenService
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt["Secret"]!));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email),
-            new Claim("role", user.Role.ToString()),
-            new Claim("name", user.FullName ?? user.Email),
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Email, user.Email),
+            new("role", user.Role.ToString()),
+            new("name", user.FullName ?? user.Email),
         };
+        if (!string.IsNullOrWhiteSpace(user.AssignedRegion))
+            claims.Add(new Claim("region", user.AssignedRegion));
 
         var token = new JwtSecurityToken(
             issuer: jwt["Issuer"],

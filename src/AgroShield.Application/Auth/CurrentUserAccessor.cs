@@ -26,4 +26,13 @@ public class CurrentUserAccessor(IHttpContextAccessor httpContextAccessor) : ICu
             return Role.Farmer;
         }
     }
+
+    public string? Region
+    {
+        get
+        {
+            var value = User.FindFirstValue("region");
+            return string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+    }
 }

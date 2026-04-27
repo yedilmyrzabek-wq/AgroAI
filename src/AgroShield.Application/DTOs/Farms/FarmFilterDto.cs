@@ -9,7 +9,7 @@ public class FarmFilterDto
     public int? MinRisk { get; set; }
     public int? MaxRisk { get; set; }
     public int Page { get; set; } = 1;
-    public int PageSize { get; set; } = 20;
+    public int PageSize { get; set; } = 200;
     public string? SortBy { get; set; }  // risk | area | name
     public string? Order { get; set; }   // asc | desc
 }

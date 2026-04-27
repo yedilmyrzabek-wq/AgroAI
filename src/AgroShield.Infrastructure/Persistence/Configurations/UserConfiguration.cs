@@ -24,8 +24,14 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.CreatedAt).HasDefaultValueSql("now()");
         builder.Property(u => u.UpdatedAt).HasDefaultValueSql("now()");
 
+        builder.Property(u => u.AssignedRegion).HasMaxLength(100);
+
         builder.HasIndex(u => u.TelegramChatId)
             .HasFilter("telegram_chat_id IS NOT NULL");
+
+        builder.HasIndex(u => u.AssignedRegion)
+            .HasDatabaseName("ix_users_assigned_region")
+            .HasFilter("assigned_region IS NOT NULL");
 
         builder.HasMany(u => u.OwnedFarms)
             .WithOne(f => f.Owner)

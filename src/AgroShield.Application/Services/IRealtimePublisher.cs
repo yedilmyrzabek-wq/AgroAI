@@ -7,4 +7,5 @@ public interface IRealtimePublisher
     Task PushSensorReadingAsync(Guid farmId, SensorReadingDto reading);
     Task PushFireAlertAsync(Guid farmId, object payload);
     Task PushRfidScanAsync(Guid farmId, object payload);
+    Task PushBatchFrozenAsync(Guid farmId, object payload);
 }

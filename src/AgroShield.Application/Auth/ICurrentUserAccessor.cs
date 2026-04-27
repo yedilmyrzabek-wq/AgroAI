@@ -8,4 +8,5 @@ public interface ICurrentUserAccessor
     Guid UserId { get; }
     string Email { get; }
     Role Role { get; }
+    string? Region { get; }
 }

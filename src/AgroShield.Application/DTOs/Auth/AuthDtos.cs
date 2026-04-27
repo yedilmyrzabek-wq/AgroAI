@@ -10,7 +10,7 @@ public record StartPasswordResetRequest(string Email);
 public record ConfirmPasswordResetRequest(string Email, string Code, string NewPassword);
 
 public record TokenResponse(string AccessToken, string RefreshToken, int ExpiresIn, UserDto User);
-public record UserDto(Guid Id, string Email, string? FullName, string Role, bool TelegramLinked, Guid? FarmId);
+public record UserDto(Guid Id, string Email, string? FullName, string Role, bool TelegramLinked, Guid? FarmId, string? AssignedRegion);
 
 public record BotRegisterStartRequest(
     [property: JsonPropertyName("email")] string Email

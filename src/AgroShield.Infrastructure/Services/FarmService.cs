@@ -25,6 +25,8 @@ public class FarmService(
 
         if (currentUser.Role == Role.Farmer)
             q = q.Where(x => x.OwnerId == currentUser.UserId);
+        else if (currentUser.Role == Role.Inspector && !string.IsNullOrWhiteSpace(currentUser.Region))
+            q = q.Where(x => x.Region == currentUser.Region);
 
         if (!string.IsNullOrWhiteSpace(f.Search))
         {
@@ -51,7 +53,7 @@ public class FarmService(
 
         var total = await q.CountAsync(ct);
         var page  = Math.Max(1, f.Page);
-        var size  = Math.Clamp(f.PageSize, 1, 100);
+        var size  = Math.Clamp(f.PageSize, 1, 500);
 
         var items = await q
             .Skip((page - 1) * size)
@@ -83,6 +85,34 @@ public class FarmService(
         var activeAnomalies = await db.Anomalies
             .CountAsync(a => a.FarmId == id && a.Status == Domain.Enums.AnomalyStatus.Active || a.Status == Domain.Enums.AnomalyStatus.InProgress, ct);
 
+        // v3: livestock summary
+        var livestock = await db.Livestock.Where(l => l.FarmId == id).ToListAsync(ct);
+        object? livestockSummary = livestock.Count > 0 ? new
+        {
+            declared = livestock.Sum(l => l.DeclaredCount),
+            detected = livestock.Sum(l => l.LastDetectedCount ?? 0),
+            anomaly = livestock.Any(l => l.AnomalyDetected),
+        } : null;
+
+        // v3: fertilizer last recommendation
+        var fertLastAt = await db.FertilizerRecommendations
+            .Where(r => r.FarmId == id)
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => (DateTime?)r.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        // v3: active supply chain batches
+        var activeBatches = await db.SupplyChainBatches
+            .CountAsync(b => b.FarmId == id && b.Status == "active", ct);
+
+        // v3: ndvi history from json field
+        object? ndviHistory = null;
+        if (!string.IsNullOrEmpty(farm.NdviHistoryJson))
+        {
+            try { ndviHistory = System.Text.Json.JsonSerializer.Deserialize<object>(farm.NdviHistoryJson); }
+            catch { }
+        }
+
         return new FarmDetailDto(
             farm.Id, farm.Name, farm.Region, farm.District, farm.CropType,
             farm.AreaHectares, farm.RiskScore, farm.Lat, farm.Lng,
@@ -90,7 +120,11 @@ public class FarmService(
             farm.OwnerId, farm.Owner.FullName,
             farm.CreatedAt, farm.UpdatedAt,
             latest, activeSubsidies, activeAnomalies,
-            farm.NdviMean, farm.ActiveAreaFromNdvi, farm.NdviUpdatedAt);
+            farm.NdviMean, farm.ActiveAreaFromNdvi, farm.NdviUpdatedAt,
+            NdviHistory: ndviHistory,
+            LivestockSummary: livestockSummary,
+            FertilizerLastRecommendationAt: fertLastAt,
+            ActiveBatchesCount: activeBatches);
     }
 
     public async Task<FarmDetailDto> CreateAsync(CreateFarmDto dto, CancellationToken ct = default)

@@ -1,3 +1,4 @@
+using AgroShield.Application.Auth;
 using AgroShield.Application.DTOs.Anomalies;
 using AgroShield.Domain.Enums;
 using AgroShield.Domain.Exceptions;
@@ -11,12 +12,15 @@ namespace AgroShield.Api.Controllers;
 [ApiController]
 [Route("api/anomalies")]
 [Authorize(Roles = "Inspector,Admin")]
-public class AnomaliesController(AppDbContext db) : ControllerBase
+public class AnomaliesController(AppDbContext db, ICurrentUserAccessor user) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] AnomalyFilterDto filter, CancellationToken ct)
     {
         var q = db.Anomalies.Include(a => a.Farm).AsQueryable();
+
+        if (user.Role == Role.Inspector && !string.IsNullOrWhiteSpace(user.Region))
+            q = q.Where(a => a.Farm.Region == user.Region);
 
         if (!string.IsNullOrEmpty(filter.Status) && Enum.TryParse<AnomalyStatus>(filter.Status, true, out var st))
             q = q.Where(a => a.Status == st);
@@ -26,7 +30,7 @@ public class AnomaliesController(AppDbContext db) : ControllerBase
         if (filter.MinRiskScore.HasValue) q = q.Where(a => a.RiskScore >= filter.MinRiskScore.Value);
 
         var page  = Math.Max(1, filter.Page);
-        var limit = Math.Clamp(filter.Limit, 1, 200);
+        var limit = Math.Clamp(filter.Limit, 1, 500);
         var total = await q.CountAsync(ct);
 
         var items = await q

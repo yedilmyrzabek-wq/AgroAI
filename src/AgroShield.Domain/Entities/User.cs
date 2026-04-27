@@ -17,6 +17,7 @@ public class User
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public string? AssignedRegion { get; set; }
 
     public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
     public ICollection<Farm> OwnedFarms { get; set; } = [];

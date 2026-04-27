@@ -23,6 +23,15 @@ public class AppDbContext : DbContext
     public DbSet<Recommendation> Recommendations => Set<Recommendation>();
     public DbSet<ChatSession> ChatSessions => Set<ChatSession>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    public DbSet<Livestock> Livestock => Set<Livestock>();
+    public DbSet<LivestockLedger> LivestockLedger => Set<LivestockLedger>();
+    public DbSet<FertilizerRecommendation> FertilizerRecommendations => Set<FertilizerRecommendation>();
+    public DbSet<SupplyChainBatch> SupplyChainBatches => Set<SupplyChainBatch>();
+    public DbSet<SupplyChainTransition> SupplyChainTransitions => Set<SupplyChainTransition>();
+    public DbSet<SupplyChainAuditLog> SupplyChainAuditLogs => Set<SupplyChainAuditLog>();
+    public DbSet<NotificationSubscription> NotificationSubscriptions => Set<NotificationSubscription>();
+    public DbSet<WeeklyReport> WeeklyReports => Set<WeeklyReport>();
+    public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

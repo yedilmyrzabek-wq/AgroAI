@@ -28,6 +28,10 @@ public class AnomalyConfiguration : IEntityTypeConfiguration<Anomaly>
                     v => v.Aggregate(0, (h, s) => HashCode.Combine(h, s.GetHashCode())),
                     v => v.ToArray()));
 
+        builder.Property(a => a.RelatedFarmIds).HasColumnType("uuid[]");
+        builder.Property(a => a.MlFeaturesJson).HasColumnType("jsonb");
+        builder.Property(a => a.FrozenBatchesCount).HasDefaultValue(0);
+
         builder.HasIndex(a => new { a.Status, a.DetectedAt });
         builder.HasIndex(a => a.FarmId);
 

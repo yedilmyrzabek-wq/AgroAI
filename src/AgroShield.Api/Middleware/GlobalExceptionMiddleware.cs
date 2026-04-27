@@ -22,7 +22,7 @@ public class GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExcep
             context.Response.StatusCode = ex.StatusCode;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsJsonAsync(
-                new { error = ErrorCode(ex), message = ex.Message, details = (string?)null },
+                new { error = ex.Code ?? ErrorCode(ex), message = ex.Message, details = (string?)null },
                 JsonOpts);
         }
         catch (Exception ex)

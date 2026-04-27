@@ -27,7 +27,13 @@ public class FarmConfiguration : IEntityTypeConfiguration<Farm>
         builder.HasIndex(f => f.DeviceId)
             .HasFilter("device_id IS NOT NULL");
 
+        builder.Property(f => f.BankBin).HasMaxLength(20);
+        builder.Property(f => f.OwnerIin).HasMaxLength(20);
+        builder.Property(f => f.NdviHistoryJson).HasColumnType("jsonb");
+
         builder.HasIndex(f => f.RiskScore);
         builder.HasIndex(f => f.OwnerId);
+        builder.HasIndex(f => f.OwnerIin).HasFilter("owner_iin IS NOT NULL");
+        builder.HasIndex(f => f.BankBin).HasFilter("bank_bin IS NOT NULL");
     }
 }

@@ -167,7 +167,7 @@ public class AuthService(
     }
 
     private static UserDto ToUserDto(User user, Guid? farmId) =>
-        new(user.Id, user.Email, user.FullName, user.Role.ToString().ToLower(), user.TelegramChatId.HasValue, farmId);
+        new(user.Id, user.Email, user.FullName, user.Role.ToString().ToLower(), user.TelegramChatId.HasValue, farmId, user.AssignedRegion);
 
     private async Task<Guid?> GetFarmIdAsync(Guid userId) =>
         await db.Farms.Where(f => f.OwnerId == userId).Select(f => (Guid?)f.Id).FirstOrDefaultAsync();
