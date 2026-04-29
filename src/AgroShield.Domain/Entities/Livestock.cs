@@ -14,5 +14,4 @@ public class Livestock
     public DateTime UpdatedAt { get; set; }
 
     public Farm Farm { get; set; } = null!;
-    public ICollection<LivestockLedger> Ledger { get; set; } = [];
 }

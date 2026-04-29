@@ -13,8 +13,52 @@ namespace AgroShield.Api.Controllers;
 [ApiController]
 [Route("api/admin")]
 [Authorize(Roles = "Admin")]
-public class AdminController(AppDbContext db, IDemoSeedService seed) : ControllerBase
+public class AdminController(AppDbContext db, IDemoSeedService seed, IHttpClientFactory httpFactory, ILogger<AdminController> logger) : ControllerBase
 {
+    private static readonly string[] MlServiceNames =
+    [
+        "PlantCv", "YieldPredictor", "AnomalyDetector", "AiAssistant",
+        "SatelliteNdvi", "TelegramBot", "LivestockMonitor",
+        "FertilizerAdvisor", "SupplyChainTracker"
+    ];
+
+    [HttpGet("ml-smoke-9")]
+    public async Task<IActionResult> MlSmoke9(CancellationToken ct)
+    {
+        var results = new Dictionary<string, object>();
+        var tasks = MlServiceNames.Select(async name =>
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                var client = httpFactory.CreateClient(name);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(5));
+                var resp = await client.GetAsync("/health", cts.Token);
+                sw.Stop();
+                return (name, status: (int)resp.StatusCode, ok: resp.IsSuccessStatusCode, latency_ms: sw.ElapsedMilliseconds, error: (string?)null);
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                logger.LogWarning(ex, "ML smoke-test failed for {Service}", name);
+                return (name, status: 0, ok: false, latency_ms: sw.ElapsedMilliseconds, error: ex.GetType().Name);
+            }
+        });
+
+        foreach (var r in await Task.WhenAll(tasks))
+            results[r.name] = new { status = r.status, ok = r.ok, latency_ms = r.latency_ms, error = r.error };
+
+        var healthy = results.Values.Cast<dynamic>().Count(v => (bool)v.ok);
+        return Ok(new
+        {
+            total = MlServiceNames.Length,
+            healthy,
+            unhealthy = MlServiceNames.Length - healthy,
+            services = results,
+        });
+    }
+
     [HttpGet("users")]
     public async Task<IActionResult> GetUsers([FromQuery] AdminUserFilter filter, CancellationToken ct)
     {

@@ -1,4 +1,5 @@
 using AgroShield.Api.Filters;
+using AgroShield.Application.Services;
 using AgroShield.Domain.Entities;
 using AgroShield.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
@@ -15,9 +16,20 @@ namespace AgroShield.Api.Controllers;
 public class InternalLivestockController(
     AppDbContext db,
     IHttpClientFactory factory,
+    IStorageService storage,
     ILogger<InternalLivestockController> logger) : ControllerBase
 {
     private static readonly JsonSerializerOptions SnakeOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+
+    private static readonly HashSet<string> CvEventTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cv_increment", "cv_full_recount"
+    };
+
+    private static readonly HashSet<string> ManualEventTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "lost", "sold", "born", "bought", "manual_adjustment"
+    };
 
     [HttpPost("count-from-image")]
     [Consumes("multipart/form-data")]
@@ -29,73 +41,87 @@ public class InternalLivestockController(
         if (farm is null)
             return NotFound(new { error = "not_found", message = "Farm not found" });
 
-        // call livestock-monitor
+        var isFullRecount = string.Equals(request.Mode, "full_recount", StringComparison.OrdinalIgnoreCase);
+        var eventType = isFullRecount ? "cv_full_recount" : "cv_increment";
+
+        // Upload original image to Storage for audit trail (TZ §10)
+        string? photoUrl = null;
+        byte[] fileBytes;
+        await using (var ms = new MemoryStream())
+        {
+            await using var src = request.File.OpenReadStream();
+            await src.CopyToAsync(ms, ct);
+            fileBytes = ms.ToArray();
+        }
+
+        try
+        {
+            var key = $"livestock/{request.FarmId}/{DateTime.UtcNow:yyyy/MM/dd}/{Guid.NewGuid()}{Path.GetExtension(request.File.FileName)}";
+            await using var uploadStream = new MemoryStream(fileBytes);
+            photoUrl = await storage.UploadAsync(uploadStream, key, request.File.ContentType ?? "image/jpeg");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Storage upload failed, proceeding without photo_url");
+        }
+
+        // Call livestock-monitor
         JsonElement mlResult;
         try
         {
             var client = factory.CreateClient("LivestockMonitor");
             using var content = new MultipartFormDataContent();
-            await using var stream = request.File.OpenReadStream();
-            content.Add(new StreamContent(stream), "file", request.File.FileName);
+            content.Add(new ByteArrayContent(fileBytes), "file", request.File.FileName);
             content.Add(new StringContent(request.FarmId.ToString()), "farm_id");
-            content.Add(new StringContent(request.LivestockType), "livestock_type");
-            if (request.DeclaredCount.HasValue)
-                content.Add(new StringContent(request.DeclaredCount.Value.ToString()), "declared_count");
+            content.Add(new StringContent(request.LivestockType), "expected_class");
 
             var response = await client.PostAsync("/count-livestock", content, ct);
             response.EnsureSuccessStatusCode();
-            mlResult = (await response.Content.ReadFromJsonAsync<JsonElement>(SnakeOpts, ct));
+            mlResult = await response.Content.ReadFromJsonAsync<JsonElement>(SnakeOpts, ct);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "LivestockMonitor unavailable, using mock");
             mlResult = JsonSerializer.Deserialize<JsonElement>(
-                """{"detected_count":0,"bboxes":[],"image_with_boxes_b64":"","_mock":true}""");
+                """{"total":0,"by_class":{},"boxes":[],"is_mock":true}""");
         }
 
-        var detectedCount = mlResult.TryGetProperty("detected_count", out var dc) ? dc.GetInt32() : 0;
-        var imageB64 = mlResult.TryGetProperty("image_with_boxes_b64", out var img) ? img.GetString() : "";
+        var mlTotal = mlResult.TryGetProperty("total", out var dc) ? dc.GetInt32() : 0;
+        var boxesRaw = mlResult.TryGetProperty("boxes", out var b) ? b.GetRawText() : "[]";
 
-        // get or create livestock record
-        var livestock = await db.Livestock
-            .FirstOrDefaultAsync(l => l.FarmId == request.FarmId && l.LivestockType == request.LivestockType, ct);
+        var livestock = await GetOrCreateLivestockAsync(request.FarmId, request.LivestockType, request.DeclaredCount ?? 0, ct);
 
-        if (livestock is null)
-        {
-            livestock = new Livestock
-            {
-                Id = Guid.NewGuid(),
-                FarmId = request.FarmId,
-                LivestockType = request.LivestockType,
-                DeclaredCount = request.DeclaredCount ?? detectedCount,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-            };
-            db.Livestock.Add(livestock);
-        }
+        var headCountBefore = livestock.LastDetectedCount ?? livestock.DeclaredCount;
+        var headCountAfter = isFullRecount ? mlTotal : headCountBefore + mlTotal;
+        var delta = headCountAfter - headCountBefore;
 
         var declared = request.DeclaredCount ?? livestock.DeclaredCount;
-        var anomaly = declared > 0 && Math.Abs(declared - detectedCount) / (double)declared > 0.2;
+        var anomaly = isFullRecount
+            && declared > 0
+            && Math.Abs(declared - headCountAfter) / (double)declared > 0.2;
 
-        livestock.LastDetectedCount = detectedCount;
+        livestock.LastDetectedCount = headCountAfter;
         livestock.LastDetectedAt = DateTime.UtcNow;
+        livestock.LastImageUrl = photoUrl ?? livestock.LastImageUrl;
         livestock.AnomalyDetected = anomaly;
         livestock.UpdatedAt = DateTime.UtcNow;
 
-        // append ledger entry
-        var prevHash = await GetLatestHashAsync(request.FarmId, request.LivestockType, ct);
-        var entryHash = ComputeHash(prevHash, request.FarmId, request.LivestockType, detectedCount, DateTime.UtcNow);
-        db.LivestockLedger.Add(new LivestockLedger
+        var payload = new
         {
-            Id = Guid.NewGuid(),
-            FarmId = request.FarmId,
-            LivestockType = request.LivestockType,
-            Count = detectedCount,
-            PrevHash = prevHash,
-            EntryHash = entryHash,
-            Source = "cv",
-            CreatedAt = DateTime.UtcNow,
-        });
+            event_type = eventType,
+            ml_total = mlTotal,
+            head_count_before = headCountBefore,
+            head_count_after = headCountAfter,
+            delta,
+            declared_count = declared,
+            photo_url = photoUrl,
+            anomaly_detected = anomaly,
+            mode = request.Mode ?? "increment",
+        };
+        var payloadJson = JsonSerializer.Serialize(payload, SnakeOpts);
+
+        var ledgerEntry = await AppendLedgerAsync(
+            request.FarmId, request.LivestockType, headCountAfter, eventType, payloadJson, ct);
 
         if (anomaly)
         {
@@ -106,7 +132,7 @@ public class InternalLivestockController(
                 EntityId = livestock.Id,
                 FarmId = request.FarmId,
                 RiskScore = 70,
-                Reasons = [$"Livestock count anomaly: declared={declared}, detected={detectedCount}"],
+                Reasons = [$"Livestock count anomaly: declared={declared}, detected={headCountAfter}"],
                 Status = Domain.Enums.AnomalyStatus.Active,
                 DetectedAt = DateTime.UtcNow,
             });
@@ -114,12 +140,80 @@ public class InternalLivestockController(
 
         await db.SaveChangesAsync(ct);
 
+        // Mirror to external SupplyChainTracker (best-effort, non-blocking) — TZ §11.2
+        await MirrorToSupplyChainAsync(request.FarmId, request.LivestockType, ledgerEntry, payload, ct);
+
         return Ok(new
         {
-            detected_count = detectedCount,
+            mode = isFullRecount ? "full_recount" : "increment",
+            event_type = eventType,
+            ml_total = mlTotal,
+            head_count_before = headCountBefore,
+            delta,
+            head_count_after = headCountAfter,
             declared_count = declared,
             anomaly_detected = anomaly,
-            image_with_boxes_b64 = imageB64,
+            photo_url = photoUrl,
+            boxes = JsonSerializer.Deserialize<JsonElement>(boxesRaw),
+        });
+    }
+
+    [HttpPost("{farmId:guid}/events")]
+    public async Task<IActionResult> AppendEvent(Guid farmId, [FromBody] LivestockEventRequest request, CancellationToken ct)
+    {
+        var farm = await db.Farms.FirstOrDefaultAsync(f => f.Id == farmId, ct);
+        if (farm is null)
+            return NotFound(new { error = "not_found", message = "Farm not found" });
+
+        if (!ManualEventTypes.Contains(request.EventType))
+            return BadRequest(new { error = "invalid_event_type", allowed = ManualEventTypes });
+
+        if (request.CountDelta == 0)
+            return BadRequest(new { error = "invalid_delta", message = "count_delta must be non-zero" });
+
+        // Sign convention: lost/sold → negative; born/bought → positive; manual_adjustment → as provided
+        var signedDelta = request.EventType switch
+        {
+            "lost" or "sold" => -Math.Abs(request.CountDelta),
+            "born" or "bought" => Math.Abs(request.CountDelta),
+            _ => request.CountDelta,
+        };
+
+        var livestock = await GetOrCreateLivestockAsync(farmId, request.LivestockType, 0, ct);
+
+        var headCountBefore = livestock.LastDetectedCount ?? livestock.DeclaredCount;
+        var headCountAfter = headCountBefore + signedDelta;
+
+        if (headCountAfter < 0)
+            return BadRequest(new { error = "negative_count", message = $"Resulting count would be {headCountAfter}" });
+
+        livestock.LastDetectedCount = headCountAfter;
+        livestock.UpdatedAt = DateTime.UtcNow;
+
+        var payload = new
+        {
+            event_type = request.EventType,
+            head_count_before = headCountBefore,
+            head_count_after = headCountAfter,
+            delta = signedDelta,
+            notes = request.Notes,
+            actor_id = ResolveActorId(),
+        };
+        var payloadJson = JsonSerializer.Serialize(payload, SnakeOpts);
+
+        var ledgerEntry = await AppendLedgerAsync(
+            farmId, request.LivestockType, headCountAfter, request.EventType, payloadJson, ct);
+
+        await db.SaveChangesAsync(ct);
+        await MirrorToSupplyChainAsync(farmId, request.LivestockType, ledgerEntry, payload, ct);
+
+        return Ok(new
+        {
+            event_type = request.EventType,
+            head_count_before = headCountBefore,
+            delta = signedDelta,
+            head_count_after = headCountAfter,
+            entry_hash = ledgerEntry.EntryHash,
         });
     }
 
@@ -139,6 +233,7 @@ public class InternalLivestockController(
             l.DeclaredCount,
             l.LastDetectedCount,
             l.LastDetectedAt,
+            l.LastImageUrl,
             l.AnomalyDetected,
             ledger_size = ledgerSize,
         }));
@@ -159,6 +254,8 @@ public class InternalLivestockController(
             e.LivestockType,
             e.Count,
             e.Source,
+            event_type = e.EventType,
+            payload = string.IsNullOrEmpty(e.PayloadJson) ? null : (JsonElement?)JsonSerializer.Deserialize<JsonElement>(e.PayloadJson),
             e.EntryHash,
             e.PrevHash,
             e.CreatedAt,
@@ -192,8 +289,24 @@ public class InternalLivestockController(
         if (farm is null)
             return NotFound(new { error = "not_found", message = "Farm not found" });
 
+        var livestock = await GetOrCreateLivestockAsync(farmId, request.LivestockType, request.Count, ct);
+        livestock.DeclaredCount = request.Count;
+        livestock.UpdatedAt = DateTime.UtcNow;
+
+        var payload = new { event_type = "manual", declared_count = request.Count };
+        var payloadJson = JsonSerializer.Serialize(payload, SnakeOpts);
+
+        var ledgerEntry = await AppendLedgerAsync(
+            farmId, request.LivestockType, request.Count, "manual", payloadJson, ct);
+
+        await db.SaveChangesAsync(ct);
+        return Ok(new { success = true, entry_hash = ledgerEntry.EntryHash });
+    }
+
+    private async Task<Livestock> GetOrCreateLivestockAsync(Guid farmId, string type, int initialDeclared, CancellationToken ct)
+    {
         var livestock = await db.Livestock
-            .FirstOrDefaultAsync(l => l.FarmId == farmId && l.LivestockType == request.LivestockType, ct);
+            .FirstOrDefaultAsync(l => l.FarmId == farmId && l.LivestockType == type, ct);
 
         if (livestock is null)
         {
@@ -201,36 +314,81 @@ public class InternalLivestockController(
             {
                 Id = Guid.NewGuid(),
                 FarmId = farmId,
-                LivestockType = request.LivestockType,
-                DeclaredCount = request.Count,
+                LivestockType = type,
+                DeclaredCount = initialDeclared,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
             };
             db.Livestock.Add(livestock);
         }
-        else
-        {
-            livestock.DeclaredCount = request.Count;
-            livestock.UpdatedAt = DateTime.UtcNow;
-        }
+        return livestock;
+    }
 
-        var prevHash = await GetLatestHashAsync(farmId, request.LivestockType, ct);
-        var entryHash = ComputeHash(prevHash, farmId, request.LivestockType, request.Count, DateTime.UtcNow);
+    private async Task<LivestockLedger> AppendLedgerAsync(
+        Guid farmId, string type, int count, string eventType, string payloadJson, CancellationToken ct)
+    {
+        var prevHash = await GetLatestHashAsync(farmId, type, ct);
+        var now = DateTime.UtcNow;
+        var entryHash = ComputeHash(prevHash, farmId, type, count, now);
 
-        db.LivestockLedger.Add(new LivestockLedger
+        var entry = new LivestockLedger
         {
             Id = Guid.NewGuid(),
             FarmId = farmId,
-            LivestockType = request.LivestockType,
-            Count = request.Count,
+            LivestockType = type,
+            Count = count,
             PrevHash = prevHash,
             EntryHash = entryHash,
-            Source = "manual",
-            CreatedAt = DateTime.UtcNow,
-        });
+            Source = CvEventTypes.Contains(eventType) ? eventType : "manual",
+            EventType = eventType,
+            PayloadJson = payloadJson,
+            CreatedAt = now,
+            CreatedByUserId = ResolveActorId(),
+        };
+        db.LivestockLedger.Add(entry);
+        return entry;
+    }
 
-        await db.SaveChangesAsync(ct);
-        return Ok(new { success = true, entry_hash = entryHash });
+    private async Task MirrorToSupplyChainAsync(Guid farmId, string type, LivestockLedger entry, object payload, CancellationToken ct)
+    {
+        try
+        {
+            // batch_id convention for livestock chain: deterministic per (farm, type)
+            var batchId = DeriveLivestockBatchId(farmId, type);
+            var client = factory.CreateClient("SupplyChainTracker");
+            var body = new
+            {
+                batch_id = batchId,
+                event_type = entry.EventType ?? entry.Source,
+                actor_id = entry.CreatedByUserId,
+                timestamp = entry.CreatedAt,
+                prev_hash = entry.PrevHash,
+                hash = entry.EntryHash,
+                payload,
+            };
+            var resp = await client.PostAsJsonAsync("/append-record", body, SnakeOpts, ct);
+            if (!resp.IsSuccessStatusCode)
+                logger.LogWarning("SupplyChainTracker /append-record returned {Status} for livestock event {Hash}", resp.StatusCode, entry.EntryHash);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "SupplyChainTracker mirror failed for livestock event {Hash} (non-blocking)", entry.EntryHash);
+        }
+    }
+
+    private static Guid DeriveLivestockBatchId(Guid farmId, string type)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"livestock|{farmId:N}|{type.ToLowerInvariant()}"));
+        Span<byte> guidBytes = stackalloc byte[16];
+        bytes.AsSpan(0, 16).CopyTo(guidBytes);
+        return new Guid(guidBytes);
+    }
+
+    private Guid? ResolveActorId()
+    {
+        if (Request.Headers.TryGetValue("X-User-Id", out var raw) && Guid.TryParse(raw, out var g))
+            return g;
+        return null;
     }
 
     private async Task<string> GetLatestHashAsync(Guid farmId, string type, CancellationToken ct)
@@ -257,10 +415,19 @@ public class CountFromImageRequest
     public Guid FarmId { get; set; }
     public string LivestockType { get; set; } = null!;
     public int? DeclaredCount { get; set; }
+    public string Mode { get; set; } = "increment";
 }
 
 public class DeclareRequest
 {
     public string LivestockType { get; set; } = null!;
     public int Count { get; set; }
+}
+
+public class LivestockEventRequest
+{
+    public string LivestockType { get; set; } = null!;
+    public string EventType { get; set; } = null!;
+    public int CountDelta { get; set; }
+    public string? Notes { get; set; }
 }

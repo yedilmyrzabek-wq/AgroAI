@@ -15,6 +15,8 @@ public class LivestockLedgerConfiguration : IEntityTypeConfiguration<LivestockLe
         builder.Property(l => l.PrevHash).HasMaxLength(64).IsRequired();
         builder.Property(l => l.EntryHash).HasMaxLength(64).IsRequired();
         builder.Property(l => l.Source).HasMaxLength(50).IsRequired();
+        builder.Property(l => l.EventType).HasMaxLength(50);
+        builder.Property(l => l.PayloadJson).HasColumnType("jsonb");
         builder.Property(l => l.CreatedAt).HasDefaultValueSql("now()");
 
         builder.HasIndex(l => l.EntryHash).IsUnique();

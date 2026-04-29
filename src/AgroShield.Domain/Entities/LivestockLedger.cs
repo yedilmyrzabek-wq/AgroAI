@@ -9,6 +9,8 @@ public class LivestockLedger
     public string PrevHash { get; set; } = null!;
     public string EntryHash { get; set; } = null!;
     public string Source { get; set; } = null!;
+    public string? EventType { get; set; }
+    public string? PayloadJson { get; set; }
     public DateTime CreatedAt { get; set; }
     public Guid? CreatedByUserId { get; set; }
 
