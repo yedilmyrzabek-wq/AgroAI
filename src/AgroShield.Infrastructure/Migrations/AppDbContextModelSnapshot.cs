@@ -196,10 +196,32 @@ namespace AgroShield.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("farm_id");
 
+                    b.Property<int>("FrozenBatchesCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("frozen_batches_count");
+
+                    b.Property<int?>("GraphRiskScore")
+                        .HasColumnType("integer")
+                        .HasColumnName("graph_risk_score");
+
+                    b.Property<DateTime?>("LastFreezeAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_freeze_at");
+
+                    b.Property<string>("MlFeaturesJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("ml_features_json");
+
                     b.Property<string>("Reasons")
                         .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("reasons");
+
+                    b.Property<Guid[]>("RelatedFarmIds")
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("related_farm_ids");
 
                     b.Property<string>("ResolutionNotes")
                         .HasMaxLength(1000)
@@ -386,6 +408,11 @@ namespace AgroShield.Infrastructure.Migrations
                         .HasColumnType("numeric(10,2)")
                         .HasColumnName("area_hectares");
 
+                    b.Property<string>("BankBin")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("bank_bin");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -409,6 +436,10 @@ namespace AgroShield.Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("district");
 
+                    b.Property<Guid?>("ElevatorContractId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("elevator_contract_id");
+
                     b.Property<double>("Lat")
                         .HasColumnType("double precision")
                         .HasColumnName("lat");
@@ -423,6 +454,10 @@ namespace AgroShield.Infrastructure.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<string>("NdviHistoryJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("ndvi_history_json");
+
                     b.Property<decimal?>("NdviMean")
                         .HasPrecision(5, 4)
                         .HasColumnType("numeric(5,4)")
@@ -435,6 +470,11 @@ namespace AgroShield.Infrastructure.Migrations
                     b.Property<Guid>("OwnerId")
                         .HasColumnType("uuid")
                         .HasColumnName("owner_id");
+
+                    b.Property<string>("OwnerIin")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("owner_iin");
 
                     b.Property<string>("PolygonGeoJson")
                         .IsRequired()
@@ -464,6 +504,10 @@ namespace AgroShield.Infrastructure.Migrations
                     b.HasKey("Id")
                         .HasName("pk_farms");
 
+                    b.HasIndex("BankBin")
+                        .HasDatabaseName("ix_farms_bank_bin")
+                        .HasFilter("bank_bin IS NOT NULL");
+
                     b.HasIndex("DeviceId")
                         .HasDatabaseName("ix_farms_device_id")
                         .HasFilter("device_id IS NOT NULL");
@@ -471,10 +515,301 @@ namespace AgroShield.Infrastructure.Migrations
                     b.HasIndex("OwnerId")
                         .HasDatabaseName("ix_farms_owner_id");
 
+                    b.HasIndex("OwnerIin")
+                        .HasDatabaseName("ix_farms_owner_iin")
+                        .HasFilter("owner_iin IS NOT NULL");
+
                     b.HasIndex("RiskScore")
                         .HasDatabaseName("ix_farms_risk_score");
 
                     b.ToTable("farms", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.FertilizerRecommendation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("ApplicationWindows")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("application_windows");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<decimal?>("EstimatedCostKzt")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("estimated_cost_kzt");
+
+                    b.Property<decimal?>("ExpectedYieldIncreasePct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("expected_yield_increase_pct");
+
+                    b.Property<string>("ExplanationRu")
+                        .HasColumnType("text")
+                        .HasColumnName("explanation_ru");
+
+                    b.Property<Guid>("FarmId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("farm_id");
+
+                    b.Property<decimal?>("KKgPerHa")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("numeric(6,2)")
+                        .HasColumnName("k_kg_per_ha");
+
+                    b.Property<string>("ModelVersion")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("model_version");
+
+                    b.Property<decimal?>("NKgPerHa")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("numeric(6,2)")
+                        .HasColumnName("n_kg_per_ha");
+
+                    b.Property<decimal?>("PKgPerHa")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("numeric(6,2)")
+                        .HasColumnName("p_kg_per_ha");
+
+                    b.Property<decimal?>("TotalKg")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)")
+                        .HasColumnName("total_kg");
+
+                    b.HasKey("Id")
+                        .HasName("pk_fertilizer_recommendations");
+
+                    b.HasIndex("FarmId", "CreatedAt")
+                        .HasDatabaseName("ix_fertilizer_recommendations_farm_id_created_at");
+
+                    b.ToTable("fertilizer_recommendations", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.KnowledgeChunk", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<int>("ChunkIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("chunk_index");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("EmbeddingJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("embedding_json");
+
+                    b.Property<string>("SourceDoc")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_doc");
+
+                    b.Property<string>("SourceUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("source_url");
+
+                    b.HasKey("Id")
+                        .HasName("pk_knowledge_chunks");
+
+                    b.HasIndex("SourceDoc")
+                        .HasDatabaseName("ix_knowledge_chunks_source_doc");
+
+                    b.ToTable("knowledge_chunks", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.Livestock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<bool>("AnomalyDetected")
+                        .HasColumnType("boolean")
+                        .HasColumnName("anomaly_detected");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("DeclaredCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("declared_count");
+
+                    b.Property<Guid>("FarmId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("farm_id");
+
+                    b.Property<DateTime?>("LastDetectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_detected_at");
+
+                    b.Property<int?>("LastDetectedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_detected_count");
+
+                    b.Property<string>("LastImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("last_image_url");
+
+                    b.Property<string>("LivestockType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("livestock_type");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id")
+                        .HasName("pk_livestock");
+
+                    b.HasIndex("FarmId")
+                        .HasDatabaseName("ix_livestock_farm_id");
+
+                    b.ToTable("livestock", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.LivestockLedger", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("integer")
+                        .HasColumnName("count");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("EntryHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("entry_hash");
+
+                    b.Property<string>("EventType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("event_type");
+
+                    b.Property<Guid>("FarmId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("farm_id");
+
+                    b.Property<string>("LivestockType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("livestock_type");
+
+                    b.Property<string>("PayloadJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload_json");
+
+                    b.Property<string>("PrevHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("prev_hash");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("source");
+
+                    b.HasKey("Id")
+                        .HasName("pk_livestock_ledger");
+
+                    b.HasIndex("EntryHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_livestock_ledger_entry_hash");
+
+                    b.HasIndex("FarmId", "CreatedAt")
+                        .HasDatabaseName("ix_livestock_ledger_farm_id_created_at");
+
+                    b.ToTable("livestock_ledger", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.NotificationSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("NotificationType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("notification_type");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_notification_subscriptions");
+
+                    b.HasIndex("UserId", "NotificationType")
+                        .IsUnique()
+                        .HasDatabaseName("ix_notification_subscriptions_user_id_notification_type");
+
+                    b.ToTable("notification_subscriptions", (string)null);
                 });
 
             modelBuilder.Entity("AgroShield.Domain.Entities.PlantDiagnosis", b =>
@@ -779,6 +1114,15 @@ namespace AgroShield.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("checked_at");
 
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("CropType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("crop_type");
+
                     b.Property<decimal>("DeclaredArea")
                         .HasPrecision(10, 2)
                         .HasColumnType("numeric(10,2)")
@@ -787,6 +1131,10 @@ namespace AgroShield.Infrastructure.Migrations
                     b.Property<Guid>("FarmId")
                         .HasColumnType("uuid")
                         .HasColumnName("farm_id");
+
+                    b.Property<Guid?>("FarmerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("farmer_id");
 
                     b.Property<decimal?>("NdviMeanScore")
                         .HasPrecision(5, 4)
@@ -811,8 +1159,19 @@ namespace AgroShield.Infrastructure.Migrations
                         .HasColumnName("submitted_at")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<string>("WorkflowStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("approved")
+                        .HasColumnName("workflow_status");
+
                     b.HasKey("Id")
                         .HasName("pk_subsidies");
+
+                    b.HasIndex("WorkflowStatus")
+                        .HasDatabaseName("ix_subsidies_workflow_status");
 
                     b.HasIndex("FarmId", "Status")
                         .HasDatabaseName("ix_subsidies_farm_id_status");
@@ -822,6 +1181,288 @@ namespace AgroShield.Infrastructure.Migrations
                         .HasFilter("checked_at IS NULL");
 
                     b.ToTable("subsidies", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.SubsidyTranche", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<decimal>("AmountKzt")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("amount_kzt");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("integer")
+                        .HasColumnName("order");
+
+                    b.Property<decimal>("PercentOfTotal")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("percent_of_total");
+
+                    b.Property<string>("ReleaseEvidenceJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("release_evidence_json");
+
+                    b.Property<DateTime?>("ReleasedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("released_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("SubsidyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subsidy_id");
+
+                    b.Property<string>("UnlockCondition")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("unlock_condition");
+
+                    b.HasKey("Id")
+                        .HasName("pk_subsidy_tranches");
+
+                    b.HasIndex("Status", "UnlockCondition")
+                        .HasDatabaseName("ix_subsidy_tranches_status_unlock_condition");
+
+                    b.HasIndex("SubsidyId", "Order")
+                        .IsUnique()
+                        .HasDatabaseName("ix_subsidy_tranches_subsidy_id_order");
+
+                    b.ToTable("subsidy_tranches", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.SupplyChainAuditLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("metadata_json");
+
+                    b.Property<DateTime>("PerformedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("performed_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("PerformedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("performed_by");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.HasKey("Id")
+                        .HasName("pk_supply_chain_audit_log");
+
+                    b.HasIndex("PerformedBy")
+                        .HasDatabaseName("ix_supply_chain_audit_log_performed_by");
+
+                    b.HasIndex("Action", "PerformedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_audit_action");
+
+                    b.HasIndex("BatchId", "PerformedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_audit_batch_time");
+
+                    b.ToTable("supply_chain_audit_log", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.SupplyChainBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<bool>("AnomalyDetected")
+                        .HasColumnType("boolean")
+                        .HasColumnName("anomaly_detected");
+
+                    b.Property<string>("BatchCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("batch_code");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("CropType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("crop_type");
+
+                    b.Property<string>("CurrentHolderId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("current_holder_id");
+
+                    b.Property<string>("CurrentHolderType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("farm")
+                        .HasColumnName("current_holder_type");
+
+                    b.Property<decimal>("CurrentWeightKg")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)")
+                        .HasColumnName("current_weight_kg");
+
+                    b.Property<Guid>("FarmId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("farm_id");
+
+                    b.Property<string>("FreezeReason")
+                        .HasColumnType("text")
+                        .HasColumnName("freeze_reason");
+
+                    b.Property<DateTime?>("FrozenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("frozen_at");
+
+                    b.Property<Guid?>("FrozenBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("frozen_by");
+
+                    b.Property<DateOnly?>("HarvestDate")
+                        .HasColumnType("date")
+                        .HasColumnName("harvest_date");
+
+                    b.Property<decimal>("InitialWeightKg")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)")
+                        .HasColumnName("initial_weight_kg");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("active")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime?>("UnfrozenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("unfrozen_at");
+
+                    b.Property<Guid?>("UnfrozenBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("unfrozen_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_supply_chain_batches");
+
+                    b.HasIndex("BatchCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_supply_chain_batches_batch_code");
+
+                    b.HasIndex("FarmId", "Status")
+                        .HasDatabaseName("ix_supply_chain_batches_farm_id_status");
+
+                    b.HasIndex("Status", "FarmId")
+                        .HasDatabaseName("ix_batches_status_farm");
+
+                    b.ToTable("supply_chain_batches", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.SupplyChainLedgerEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("BatchId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("batch_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("EntryHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("entry_hash");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("event_type");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload_json");
+
+                    b.Property<string>("PrevHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("prev_hash");
+
+                    b.HasKey("Id")
+                        .HasName("pk_supply_chain_ledger");
+
+                    b.HasIndex("EntryHash")
+                        .HasDatabaseName("ix_supply_chain_ledger_hash");
+
+                    b.HasIndex("BatchId", "CreatedAt")
+                        .HasDatabaseName("ix_supply_chain_ledger_batch_time");
+
+                    b.ToTable("supply_chain_ledger", (string)null);
                 });
 
             modelBuilder.Entity("AgroShield.Domain.Entities.SupplyChainNode", b =>
@@ -908,6 +1549,64 @@ namespace AgroShield.Infrastructure.Migrations
                     b.ToTable("supply_chain_nodes", (string)null);
                 });
 
+            modelBuilder.Entity("AgroShield.Domain.Entities.SupplyChainTransition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<string>("FromNodeId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("from_node_id");
+
+                    b.Property<string>("FromNodeType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("from_node_type");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("ToNodeId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("to_node_id");
+
+                    b.Property<string>("ToNodeType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("to_node_type");
+
+                    b.Property<DateTime>("TransferredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("transferred_at");
+
+                    b.Property<decimal>("WeightKg")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)")
+                        .HasColumnName("weight_kg");
+
+                    b.HasKey("Id")
+                        .HasName("pk_supply_chain_transitions");
+
+                    b.HasIndex("BatchId", "TransferredAt")
+                        .HasDatabaseName("ix_supply_chain_transitions_batch_id_transferred_at");
+
+                    b.ToTable("supply_chain_transitions", (string)null);
+                });
+
             modelBuilder.Entity("AgroShield.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -915,6 +1614,11 @@ namespace AgroShield.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("AssignedRegion")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("assigned_region");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -986,6 +1690,10 @@ namespace AgroShield.Infrastructure.Migrations
                     b.HasKey("Id")
                         .HasName("pk_users");
 
+                    b.HasIndex("AssignedRegion")
+                        .HasDatabaseName("ix_users_assigned_region")
+                        .HasFilter("assigned_region IS NOT NULL");
+
                     b.HasIndex("Email")
                         .IsUnique()
                         .HasDatabaseName("ix_users_email");
@@ -995,6 +1703,55 @@ namespace AgroShield.Infrastructure.Migrations
                         .HasFilter("telegram_chat_id IS NOT NULL");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.WeeklyReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivered_at");
+
+                    b.Property<Guid[]>("FarmIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("farm_ids");
+
+                    b.Property<string>("ReportMarkdown")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("report_markdown");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateOnly>("WeekEnd")
+                        .HasColumnType("date")
+                        .HasColumnName("week_end");
+
+                    b.Property<DateOnly>("WeekStart")
+                        .HasColumnType("date")
+                        .HasColumnName("week_start");
+
+                    b.HasKey("Id")
+                        .HasName("pk_weekly_reports");
+
+                    b.HasIndex("UserId", "WeekStart")
+                        .HasDatabaseName("ix_weekly_reports_user_id_week_start");
+
+                    b.ToTable("weekly_reports", (string)null);
                 });
 
             modelBuilder.Entity("AgroShield.Domain.Entities.Alert", b =>
@@ -1076,6 +1833,54 @@ namespace AgroShield.Infrastructure.Migrations
                     b.Navigation("Owner");
                 });
 
+            modelBuilder.Entity("AgroShield.Domain.Entities.FertilizerRecommendation", b =>
+                {
+                    b.HasOne("AgroShield.Domain.Entities.Farm", "Farm")
+                        .WithMany("FertilizerRecommendations")
+                        .HasForeignKey("FarmId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_fertilizer_recommendations_farms_farm_id");
+
+                    b.Navigation("Farm");
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.Livestock", b =>
+                {
+                    b.HasOne("AgroShield.Domain.Entities.Farm", "Farm")
+                        .WithMany("Livestock")
+                        .HasForeignKey("FarmId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_livestock_farms_farm_id");
+
+                    b.Navigation("Farm");
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.LivestockLedger", b =>
+                {
+                    b.HasOne("AgroShield.Domain.Entities.Farm", "Farm")
+                        .WithMany()
+                        .HasForeignKey("FarmId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_livestock_ledger_farms_farm_id");
+
+                    b.Navigation("Farm");
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.NotificationSubscription", b =>
+                {
+                    b.HasOne("AgroShield.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_notification_subscriptions_users_user_id");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AgroShield.Domain.Entities.PlantDiagnosis", b =>
                 {
                     b.HasOne("AgroShield.Domain.Entities.Farm", "Farm")
@@ -1148,6 +1953,75 @@ namespace AgroShield.Infrastructure.Migrations
                     b.Navigation("Farm");
                 });
 
+            modelBuilder.Entity("AgroShield.Domain.Entities.SubsidyTranche", b =>
+                {
+                    b.HasOne("AgroShield.Domain.Entities.Subsidy", "Subsidy")
+                        .WithMany("Tranches")
+                        .HasForeignKey("SubsidyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_subsidy_tranches_subsidies_subsidy_id");
+
+                    b.Navigation("Subsidy");
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.SupplyChainAuditLog", b =>
+                {
+                    b.HasOne("AgroShield.Domain.Entities.SupplyChainBatch", "Batch")
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_supply_chain_audit_log_supply_chain_batches_batch_id");
+
+                    b.HasOne("AgroShield.Domain.Entities.User", "PerformedByUser")
+                        .WithMany()
+                        .HasForeignKey("PerformedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_supply_chain_audit_log_users_performed_by");
+
+                    b.Navigation("Batch");
+
+                    b.Navigation("PerformedByUser");
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.SupplyChainBatch", b =>
+                {
+                    b.HasOne("AgroShield.Domain.Entities.Farm", "Farm")
+                        .WithMany("SupplyChainBatches")
+                        .HasForeignKey("FarmId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_supply_chain_batches_farms_farm_id");
+
+                    b.Navigation("Farm");
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.SupplyChainTransition", b =>
+                {
+                    b.HasOne("AgroShield.Domain.Entities.SupplyChainBatch", "Batch")
+                        .WithMany("Transitions")
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_supply_chain_transitions_supply_chain_batches_batch_id");
+
+                    b.Navigation("Batch");
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.WeeklyReport", b =>
+                {
+                    b.HasOne("AgroShield.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_weekly_reports_users_user_id");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AgroShield.Domain.Entities.Animal", b =>
                 {
                     b.Navigation("Activities");
@@ -1164,6 +2038,10 @@ namespace AgroShield.Infrastructure.Migrations
 
                     b.Navigation("Anomalies");
 
+                    b.Navigation("FertilizerRecommendations");
+
+                    b.Navigation("Livestock");
+
                     b.Navigation("PlantDiagnoses");
 
                     b.Navigation("Recommendations");
@@ -1171,6 +2049,18 @@ namespace AgroShield.Infrastructure.Migrations
                     b.Navigation("Sensors");
 
                     b.Navigation("Subsidies");
+
+                    b.Navigation("SupplyChainBatches");
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.Subsidy", b =>
+                {
+                    b.Navigation("Tranches");
+                });
+
+            modelBuilder.Entity("AgroShield.Domain.Entities.SupplyChainBatch", b =>
+                {
+                    b.Navigation("Transitions");
                 });
 
             modelBuilder.Entity("AgroShield.Domain.Entities.User", b =>

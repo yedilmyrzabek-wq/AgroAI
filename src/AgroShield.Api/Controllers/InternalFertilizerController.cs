@@ -4,6 +4,7 @@ using AgroShield.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AgroShield.Api.Controllers;
 
@@ -51,7 +52,7 @@ public class InternalFertilizerController(
                 ndvi_mean = farm.NdviMean,
                 region = farm.Region,
             };
-            var response = await client.PostAsJsonAsync("/recommend", payload, SnakeOpts, ct);
+            var response = await client.PostAsJsonAsync("/recommend-fertilizer", payload, SnakeOpts, ct);
             response.EnsureSuccessStatusCode();
             var result = (await response.Content.ReadFromJsonAsync<JsonElement>(SnakeOpts, ct));
 
@@ -199,13 +200,21 @@ public class InternalFertilizerController(
 
 public class OptimizeBudgetRequest
 {
+    [JsonPropertyName("budget_kzt")]
     public decimal BudgetKzt { get; set; }
+
+    [JsonPropertyName("farm_ids")]
     public Guid[] FarmIds { get; set; } = [];
 }
 
 public class VerifyApplicationRequest
 {
+    [JsonPropertyName("farm_id")]
     public Guid FarmId { get; set; }
+
+    [JsonPropertyName("applied_at")]
     public DateTime AppliedAt { get; set; }
+
+    [JsonPropertyName("expected_growth_pct")]
     public decimal? ExpectedGrowthPct { get; set; }
 }

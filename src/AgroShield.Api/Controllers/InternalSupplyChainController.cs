@@ -4,6 +4,7 @@ using AgroShield.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AgroShield.Api.Controllers;
 
@@ -327,22 +328,38 @@ public class InternalSupplyChainController(
 
 public class CreateBatchRequest
 {
+    [JsonPropertyName("farm_id")]
     public Guid FarmId { get; set; }
+
+    [JsonPropertyName("crop_type")]
     public string CropType { get; set; } = null!;
+
+    [JsonPropertyName("weight_kg")]
     public decimal WeightKg { get; set; }
+
+    [JsonPropertyName("harvest_date")]
     public DateOnly? HarvestDate { get; set; }
 }
 
 public class MoveBatchRequest
 {
+    [JsonPropertyName("to_node_type")]
     public string ToNodeType { get; set; } = null!;
+
+    [JsonPropertyName("to_node_id")]
     public string ToNodeId { get; set; } = null!;
+
+    [JsonPropertyName("weight_kg")]
     public decimal WeightKg { get; set; }
+
+    [JsonPropertyName("transferred_at")]
     public DateTime? TransferredAt { get; set; }
+
     public string? Notes { get; set; }
 }
 
 public class FarmNetworkRequest
 {
+    [JsonPropertyName("farm_ids")]
     public Guid[] FarmIds { get; set; } = [];
 }

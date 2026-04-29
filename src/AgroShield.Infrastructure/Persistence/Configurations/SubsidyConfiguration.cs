@@ -17,9 +17,12 @@ public class SubsidyConfiguration : IEntityTypeConfiguration<Subsidy>
         builder.Property(s => s.NdviMeanScore).HasPrecision(5, 4);
         builder.Property(s => s.Purpose).HasMaxLength(500).IsRequired();
         builder.Property(s => s.Status).HasConversion<string>().HasMaxLength(20);
+        builder.Property(s => s.CropType).HasMaxLength(50);
+        builder.Property(s => s.WorkflowStatus).HasMaxLength(20).HasDefaultValue("approved");
         builder.Property(s => s.SubmittedAt).HasDefaultValueSql("now()");
 
         builder.HasIndex(s => new { s.FarmId, s.Status });
+        builder.HasIndex(s => s.WorkflowStatus).HasDatabaseName("ix_subsidies_workflow_status");
 
         builder.HasIndex(s => new { s.Status, s.CheckedAt })
             .HasFilter("checked_at IS NULL");

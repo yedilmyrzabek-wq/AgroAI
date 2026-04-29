@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AgroShield.Api.Controllers;
 
@@ -41,6 +42,9 @@ public class InternalLivestockController(
         if (farm is null)
             return NotFound(new { error = "not_found", message = "Farm not found" });
 
+        var livestockType = string.IsNullOrWhiteSpace(request.LivestockType)
+            ? request.ExpectedClass ?? "sheep"
+            : request.LivestockType;
         var isFullRecount = string.Equals(request.Mode, "full_recount", StringComparison.OrdinalIgnoreCase);
         var eventType = isFullRecount ? "cv_full_recount" : "cv_increment";
 
@@ -73,7 +77,7 @@ public class InternalLivestockController(
             using var content = new MultipartFormDataContent();
             content.Add(new ByteArrayContent(fileBytes), "file", request.File.FileName);
             content.Add(new StringContent(request.FarmId.ToString()), "farm_id");
-            content.Add(new StringContent(request.LivestockType), "expected_class");
+            content.Add(new StringContent(livestockType), "expected_class");
 
             var response = await client.PostAsync("/count-livestock", content, ct);
             response.EnsureSuccessStatusCode();
@@ -89,7 +93,7 @@ public class InternalLivestockController(
         var mlTotal = mlResult.TryGetProperty("total", out var dc) ? dc.GetInt32() : 0;
         var boxesRaw = mlResult.TryGetProperty("boxes", out var b) ? b.GetRawText() : "[]";
 
-        var livestock = await GetOrCreateLivestockAsync(request.FarmId, request.LivestockType, request.DeclaredCount ?? 0, ct);
+        var livestock = await GetOrCreateLivestockAsync(request.FarmId, livestockType, request.DeclaredCount ?? 0, ct);
 
         var headCountBefore = livestock.LastDetectedCount ?? livestock.DeclaredCount;
         var headCountAfter = isFullRecount ? mlTotal : headCountBefore + mlTotal;
@@ -121,7 +125,7 @@ public class InternalLivestockController(
         var payloadJson = JsonSerializer.Serialize(payload, SnakeOpts);
 
         var ledgerEntry = await AppendLedgerAsync(
-            request.FarmId, request.LivestockType, headCountAfter, eventType, payloadJson, ct);
+            request.FarmId, livestockType, headCountAfter, eventType, payloadJson, ct);
 
         if (anomaly)
         {
@@ -141,7 +145,7 @@ public class InternalLivestockController(
         await db.SaveChangesAsync(ct);
 
         // Mirror to external SupplyChainTracker (best-effort, non-blocking) — TZ §11.2
-        await MirrorToSupplyChainAsync(request.FarmId, request.LivestockType, ledgerEntry, payload, ct);
+        await MirrorToSupplyChainAsync(request.FarmId, livestockType, ledgerEntry, payload, ct);
 
         return Ok(new
         {
@@ -556,31 +560,61 @@ public class InternalLivestockController(
 public class CountFromImageRequest
 {
     public IFormFile File { get; set; } = null!;
+
+    [FromForm(Name = "farm_id")]
+    [JsonPropertyName("farm_id")]
     public Guid FarmId { get; set; }
-    public string LivestockType { get; set; } = null!;
+
+    [FromForm(Name = "livestock_type")]
+    [JsonPropertyName("livestock_type")]
+    public string? LivestockType { get; set; }
+
+    [FromForm(Name = "expected_class")]
+    [JsonPropertyName("expected_class")]
+    public string? ExpectedClass { get; set; }
+
+    [FromForm(Name = "declared_count")]
+    [JsonPropertyName("declared_count")]
     public int? DeclaredCount { get; set; }
+
     public string Mode { get; set; } = "increment";
 }
 
 public class CountFromUrlRequest
 {
+    [JsonPropertyName("image_url")]
     public string ImageUrl { get; set; } = null!;
+
+    [JsonPropertyName("farm_id")]
     public Guid FarmId { get; set; }
+
+    [JsonPropertyName("expected_class")]
     public string? ExpectedClass { get; set; }
+
+    [JsonPropertyName("declared_count")]
     public int? DeclaredCount { get; set; }
+
     public string? Mode { get; set; }
 }
 
 public class DeclareRequest
 {
+    [JsonPropertyName("livestock_type")]
     public string LivestockType { get; set; } = null!;
+
     public int Count { get; set; }
 }
 
 public class LivestockEventRequest
 {
+    [JsonPropertyName("livestock_type")]
     public string LivestockType { get; set; } = null!;
+
+    [JsonPropertyName("event_type")]
     public string EventType { get; set; } = null!;
+
+    [JsonPropertyName("count_delta")]
     public int CountDelta { get; set; }
+
     public string? Notes { get; set; }
 }
