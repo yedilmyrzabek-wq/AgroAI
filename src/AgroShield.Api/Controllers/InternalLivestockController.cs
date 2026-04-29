@@ -328,6 +328,39 @@ public class InternalLivestockController(
         });
     }
 
+    [HttpGet]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] string? livestockType,
+        [FromQuery] bool? anomalyOnly,
+        [FromQuery] int limit = 200,
+        CancellationToken ct = default)
+    {
+        var q = db.Livestock.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(livestockType))
+            q = q.Where(l => l.LivestockType == livestockType);
+        if (anomalyOnly == true)
+            q = q.Where(l => l.AnomalyDetected);
+
+        var rows = await q
+            .OrderByDescending(l => l.UpdatedAt)
+            .Take(Math.Clamp(limit, 1, 500))
+            .Select(l => new
+            {
+                l.Id,
+                farm_id = l.FarmId,
+                livestock_type = l.LivestockType,
+                declared_count = l.DeclaredCount,
+                last_detected_count = l.LastDetectedCount,
+                last_detected_at = l.LastDetectedAt,
+                last_image_url = l.LastImageUrl,
+                anomaly_detected = l.AnomalyDetected,
+                updated_at = l.UpdatedAt,
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { items = rows, total = rows.Count });
+    }
+
     [HttpGet("{farmId:guid}")]
     public async Task<IActionResult> GetByFarm(Guid farmId, CancellationToken ct)
     {
