@@ -32,6 +32,8 @@ public class AppDbContext : DbContext
     public DbSet<NotificationSubscription> NotificationSubscriptions => Set<NotificationSubscription>();
     public DbSet<WeeklyReport> WeeklyReports => Set<WeeklyReport>();
     public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
+    public DbSet<SubsidyTranche> SubsidyTranches => Set<SubsidyTranche>();
+    public DbSet<SupplyChainLedgerEntry> SupplyChainLedger => Set<SupplyChainLedgerEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -15,5 +15,12 @@ public class Subsidy
     public DateTime SubmittedAt { get; set; }
     public DateTime? CheckedAt { get; set; }
 
+    // Tranche workflow (TZ v6 §3.5)
+    public Guid? FarmerId { get; set; }
+    public string? CropType { get; set; }
+    public string WorkflowStatus { get; set; } = "approved"; // approved|in_progress|completed|frozen
+    public DateTime? CompletedAt { get; set; }
+
     public Farm Farm { get; set; } = null!;
+    public ICollection<SubsidyTranche> Tranches { get; set; } = [];
 }

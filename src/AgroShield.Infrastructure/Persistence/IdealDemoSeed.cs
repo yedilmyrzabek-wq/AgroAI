@@ -31,12 +31,14 @@ public class IdealDemoSeed(
               supply_chain_transitions,
               supply_chain_batches,
               supply_chain_nodes,
+              supply_chain_ledger,
               livestock_ledger,
               livestock,
               fertilizer_recommendations,
               plant_diagnoses,
               recommendations,
               anomalies,
+              subsidy_tranches,
               subsidies,
               alerts,
               animal_activities,
@@ -186,6 +188,43 @@ public class IdealDemoSeed(
         );
         await db.SaveChangesAsync(ct);
 
+        // ── Tranche-based demo subsidy (TZ v6 §3.5) ─────────────────────
+        var demoSubsidy = new Subsidy
+        {
+            Id = Guid.NewGuid(),
+            FarmId = farmStep.Id,
+            FarmerId = shadow.Id,
+            Amount = 8_000_000m,
+            DeclaredArea = farmStep.AreaHectares,
+            Purpose = "Программа субсидирования яровых (демо)",
+            CropType = farmStep.CropType,
+            Status = SubsidyStatus.Approved,
+            WorkflowStatus = "in_progress",
+            SubmittedAt = Utc(-30),
+        };
+        var trancheNow = DateTime.UtcNow;
+        demoSubsidy.Tranches = new List<SubsidyTranche>
+        {
+            new() { Id = Guid.NewGuid(), SubsidyId = demoSubsidy.Id, Order = 1, PercentOfTotal = 30m, AmountKzt = 2_400_000m, Status = "released", UnlockCondition = "registered",         ReleasedAt = Utc(-30), CreatedAt = Utc(-30) },
+            new() { Id = Guid.NewGuid(), SubsidyId = demoSubsidy.Id, Order = 2, PercentOfTotal = 30m, AmountKzt = 2_400_000m, Status = "released", UnlockCondition = "sowing_confirmed",  ReleasedAt = Utc(-22), CreatedAt = Utc(-30) },
+            new() { Id = Guid.NewGuid(), SubsidyId = demoSubsidy.Id, Order = 3, PercentOfTotal = 20m, AmountKzt = 1_600_000m, Status = "pending",  UnlockCondition = "fertilizer_applied", CreatedAt = Utc(-30) },
+            new() { Id = Guid.NewGuid(), SubsidyId = demoSubsidy.Id, Order = 4, PercentOfTotal = 20m, AmountKzt = 1_600_000m, Status = "pending",  UnlockCondition = "harvest_recorded",  CreatedAt = Utc(-30) },
+        };
+        db.Subsidies.Add(demoSubsidy);
+        await db.SaveChangesAsync(ct);
+
+        AddSupplyChainLedgerForDemo(demoSubsidy, shadow.Id);
+
+        // ── Livestock for Зерно-Сити (850 sheep) — TZ v6 demo ────────────
+        var livestockZerno = new Livestock
+        {
+            Id = Guid.NewGuid(), FarmId = farmZerno.Id, LivestockType = "sheep",
+            DeclaredCount = 850, LastDetectedCount = 850, LastDetectedAt = Utc(-2),
+            AnomalyDetected = false, CreatedAt = Utc(-200), UpdatedAt = Utc(-2),
+        };
+        db.Livestock.Add(livestockZerno);
+        AddLedgerChain(farmZerno.Id, "sheep", new[] { 845, 848, 850, 850, 850 }, shadow.Id);
+
         // ── Supply-chain batches ────────────────────────────────────────
         var batches = new List<SupplyChainBatch>
         {
@@ -267,13 +306,63 @@ public class IdealDemoSeed(
             SensorReadingsCreated:  readings.Count,
             DiagnosesCreated:       diagnoses.Count,
             AnomaliesCreated:       4,
-            SubsidiesCreated:       6,
+            SubsidiesCreated:       7,
             BatchesCreated:         batches.Count,
-            LivestockCreated:       2,
-            LedgerEntriesCreated:   10,
+            LivestockCreated:       3,
+            LedgerEntriesCreated:   15,
             SubscriptionsCreated:   7,
             KnowledgeChunksCreated: 5,
             ElapsedMs:              sw.ElapsedMilliseconds);
+    }
+
+    private void AddSupplyChainLedgerForDemo(Subsidy demoSubsidy, Guid actorId)
+    {
+        var batchId = $"subsidy-{demoSubsidy.Id:N}";
+        var prev = "0".PadLeft(64, '0');
+
+        var entries = new (string EventType, object Payload, DateTime At)[]
+        {
+            ("registered", new {
+                subsidy_id = demoSubsidy.Id,
+                amount_kzt = demoSubsidy.Amount,
+                crop_type = demoSubsidy.CropType,
+                farm_id = demoSubsidy.FarmId,
+            }, Utc(-30)),
+            ("tranche_released", new {
+                tranche_order = 1,
+                amount_kzt = 2_400_000m,
+                unlock_condition = "registered",
+            }, Utc(-30)),
+            ("sowing_confirmed", new {
+                source = "satellite-ndvi",
+                ndvi = 0.32,
+                threshold = 0.18,
+            }, Utc(-23)),
+            ("tranche_released", new {
+                tranche_order = 2,
+                amount_kzt = 2_400_000m,
+                unlock_condition = "sowing_confirmed",
+            }, Utc(-22)),
+        };
+
+        foreach (var (eventType, payload, at) in entries)
+        {
+            var payloadJson = JsonSerializer.Serialize(payload, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+            var hashInput = $"{prev}|{batchId}|{eventType}|{payloadJson}|{at:O}";
+            var entryHash = Sha256(hashInput);
+            db.SupplyChainLedger.Add(new SupplyChainLedgerEntry
+            {
+                Id = Guid.NewGuid(),
+                BatchId = batchId,
+                EventType = eventType,
+                PayloadJson = payloadJson,
+                ActorId = actorId,
+                PrevHash = prev,
+                EntryHash = entryHash,
+                CreatedAt = at,
+            });
+            prev = entryHash;
+        }
     }
 
     private void AddLedgerChain(Guid farmId, string type, int[] counts, Guid actorId)

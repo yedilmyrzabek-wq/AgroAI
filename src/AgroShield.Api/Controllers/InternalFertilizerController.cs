@@ -96,6 +96,53 @@ public class InternalFertilizerController(
         return Ok(MapRecommendation(rec));
     }
 
+    [HttpPost("verify-application")]
+    public async Task<IActionResult> VerifyApplication([FromBody] VerifyApplicationRequest request, CancellationToken ct)
+    {
+        var farm = await db.Farms.FirstOrDefaultAsync(f => f.Id == request.FarmId, ct);
+        if (farm is null)
+            return NotFound(new { error = "not_found", message = "Farm not found" });
+
+        var expectedGrowth = request.ExpectedGrowthPct ?? 15m;
+
+        try
+        {
+            var client = factory.CreateClient("FertilizerAdvisor");
+            var resp = await client.PostAsJsonAsync("/verify-application", new
+            {
+                farm_id = farm.Id.ToString(),
+                lat = farm.Lat,
+                lng = farm.Lng,
+                area_hectares = (double)farm.AreaHectares,
+                applied_at = request.AppliedAt.ToString("yyyy-MM-dd"),
+                expected_growth_pct = (double)expectedGrowth,
+            }, SnakeOpts, ct);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                logger.LogWarning("FertilizerAdvisor verify-application returned {Status}: {Body}", resp.StatusCode, body);
+                return StatusCode(502, new { error = "ml_error", message = $"FertilizerAdvisor returned {(int)resp.StatusCode}" });
+            }
+
+            return Ok(await resp.Content.ReadFromJsonAsync<JsonElement>(SnakeOpts, ct));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "FertilizerAdvisor verify-application unavailable");
+            return StatusCode(503, new
+            {
+                error = "ml_unavailable",
+                message = "FertilizerAdvisor service unreachable",
+                verdict = "unverifiable",
+                applied_at = request.AppliedAt.ToString("yyyy-MM-dd"),
+                checked_at = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                explanation_ru = $"Сервис проверки удобрений недоступен: {ex.GetType().Name}",
+                is_mock = true,
+            });
+        }
+    }
+
     [HttpPost("optimize-budget")]
     public async Task<IActionResult> OptimizeBudget([FromBody] OptimizeBudgetRequest request, CancellationToken ct)
     {
@@ -154,4 +201,11 @@ public class OptimizeBudgetRequest
 {
     public decimal BudgetKzt { get; set; }
     public Guid[] FarmIds { get; set; } = [];
+}
+
+public class VerifyApplicationRequest
+{
+    public Guid FarmId { get; set; }
+    public DateTime AppliedAt { get; set; }
+    public decimal? ExpectedGrowthPct { get; set; }
 }

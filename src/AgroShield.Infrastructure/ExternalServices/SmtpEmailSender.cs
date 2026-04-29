@@ -12,8 +12,30 @@ public class SmtpEmailSender(IConfiguration config, ILogger<SmtpEmailSender> log
     {
         var smtp = config.GetSection("Smtp");
 
+        var host = smtp["Host"]?.Trim();
+        var portRaw = smtp["Port"]?.Trim();
+        var username = smtp["Username"]?.Trim();
+        var password = smtp["Password"];               // do NOT trim — App Password может включать пробелы как разделители, но Gmail трактует и со/без пробелов одинаково
+        var fromAddress = smtp["FromAddress"]?.Trim();
+        var fromName = smtp["FromName"]?.Trim() ?? "AgroShield";
+        var enableSslRaw = smtp["EnableSsl"]?.Trim();
+
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(username)
+            || string.IsNullOrWhiteSpace(password) || string.IsNullOrWhiteSpace(fromAddress))
+        {
+            logger.LogError(
+                "SMTP misconfigured: Host={HostSet} Username={UserSet} Password={PassSet} FromAddress={FromSet}. " +
+                "Make sure Smtp__Host / Smtp__Username / Smtp__Password / Smtp__FromAddress env vars are set on Railway.",
+                !string.IsNullOrEmpty(host), !string.IsNullOrEmpty(username),
+                !string.IsNullOrEmpty(password), !string.IsNullOrEmpty(fromAddress));
+            throw new InvalidOperationException("SMTP configuration incomplete");
+        }
+
+        var port = int.TryParse(portRaw, out var p) ? p : 587;
+        var enableSsl = !bool.TryParse(enableSslRaw, out var s) || s;
+
         var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(smtp["FromName"] ?? "AgroShield", smtp["FromAddress"]));
+        message.From.Add(new MailboxAddress(fromName, fromAddress));
         message.To.Add(MailboxAddress.Parse(to));
         message.Subject = subject;
         message.Body = new TextPart("html") { Text = htmlBody };
@@ -21,16 +43,16 @@ public class SmtpEmailSender(IConfiguration config, ILogger<SmtpEmailSender> log
         using var client = new SmtpClient();
         try
         {
-            var enableSsl = bool.Parse(smtp["EnableSsl"] ?? "true");
-            var port = int.Parse(smtp["Port"] ?? "587");
+            // Для Gmail: 587+StartTls или 465+SslOnConnect
+            var socketOpts = enableSsl
+                ? (port == 465 ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls)
+                : SecureSocketOptions.None;
 
-            await client.ConnectAsync(
-                smtp["Host"],
-                port,
-                enableSsl ? SecureSocketOptions.StartTls : SecureSocketOptions.None,
-                ct);
+            logger.LogInformation("SMTP connecting to {Host}:{Port} ({Opts}) as {User}",
+                host, port, socketOpts, username);
 
-            await client.AuthenticateAsync(smtp["Username"], smtp["Password"], ct);
+            await client.ConnectAsync(host, port, socketOpts, ct);
+            await client.AuthenticateAsync(username, password, ct);
             await client.SendAsync(message, ct);
             await client.DisconnectAsync(true, ct);
 
@@ -38,7 +60,11 @@ public class SmtpEmailSender(IConfiguration config, ILogger<SmtpEmailSender> log
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to send email to {Email}", to);
+            logger.LogError(ex,
+                "Failed to send email to {Email} via {Host}:{Port} (ssl={Ssl}). " +
+                "Error: {Type} - {Message}",
+                to, host, port, enableSsl, ex.GetType().Name, ex.Message);
+            // Не пробрасываем — регистрация не должна 500'ить из-за SMTP. Ошибка уже в логах.
         }
     }
 }

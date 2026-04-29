@@ -9,7 +9,8 @@ namespace AgroShield.Infrastructure.Persistence;
 
 public class AnomalyEscalationInterceptor(IBackgroundJobClient jobs) : SaveChangesInterceptor
 {
-    private readonly ConcurrentDictionary<DbContext, List<Guid>> pending = new();
+    private readonly ConcurrentDictionary<DbContext, List<PendingEscalation>> pending = new();
+    private record PendingEscalation(Guid AnomalyId, int RiskScore);
 
     public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
     {
@@ -50,22 +51,26 @@ public class AnomalyEscalationInterceptor(IBackgroundJobClient jobs) : SaveChang
     private void Capture(DbContext? ctx)
     {
         if (ctx is null) return;
-        var ids = ctx.ChangeTracker.Entries<Anomaly>()
+        var items = ctx.ChangeTracker.Entries<Anomaly>()
             .Where(e => e.State == EntityState.Added && e.Entity.RiskScore >= 85)
             .Select(e =>
             {
                 if (e.Entity.Id == Guid.Empty) e.Entity.Id = Guid.NewGuid();
-                return e.Entity.Id;
+                return new PendingEscalation(e.Entity.Id, e.Entity.RiskScore);
             })
             .ToList();
-        if (ids.Count > 0) pending[ctx] = ids;
+        if (items.Count > 0) pending[ctx] = items;
     }
 
     private void Flush(DbContext? ctx)
     {
         if (ctx is null) return;
-        if (!pending.TryRemove(ctx, out var ids)) return;
-        foreach (var id in ids)
-            jobs.Enqueue<IVoiceEscalationService>(s => s.RunAsync(id, CancellationToken.None));
+        if (!pending.TryRemove(ctx, out var items)) return;
+        foreach (var item in items)
+        {
+            jobs.Enqueue<IVoiceEscalationService>(s => s.RunAsync(item.AnomalyId, CancellationToken.None));
+            if (item.RiskScore >= 90)
+                jobs.Enqueue<IAutoFreezeService>(s => s.RunAsync(item.AnomalyId, CancellationToken.None));
+        }
     }
 }

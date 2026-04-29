@@ -15,6 +15,7 @@ using FluentValidation.AspNetCore;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -59,6 +60,8 @@ builder.Services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
 builder.Services.AddScoped<IClimateRiskService, ClimateRiskService>();
 builder.Services.AddScoped<IVoiceEscalationService, VoiceEscalationService>();
 builder.Services.AddScoped<IDemoSeedService, IdealDemoSeed>();
+builder.Services.AddScoped<ISupplyChainService, SupplyChainService>();
+builder.Services.AddScoped<IAutoFreezeService, AutoFreezeService>();
 
 // ── Auth services ─────────────────────────────────────────────────────────
 builder.Services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
@@ -83,6 +86,7 @@ builder.Services.AddTransient<NdviDropDetectionJob>();
 builder.Services.AddTransient<WeeklyReportJob>();
 builder.Services.AddTransient<SupplyChainAnomalyJob>();
 builder.Services.AddTransient<DailyTelegramDigestJob>();
+builder.Services.AddTransient<SubsidyDisbursementJob>();
 
 // ── FluentValidation ──────────────────────────────────────────────────────
 builder.Services.AddValidatorsFromAssembly(typeof(CreateFarmDtoValidator).Assembly);
@@ -208,6 +212,17 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
 
+// ── Rate limiting ─────────────────────────────────────────────────────────
+builder.Services.AddRateLimiter(opts =>
+{
+    opts.AddFixedWindowLimiter("public", o =>
+    {
+        o.Window = TimeSpan.FromMinutes(1);
+        o.PermitLimit = 30;
+        o.QueueLimit = 0;
+    });
+});
+
 // ── Health checks ─────────────────────────────────────────────────────────
 var hc = builder.Services.AddHealthChecks()
     .AddNpgSql(connectionString, name: "postgres", tags: ["ready"]);
@@ -264,6 +279,7 @@ RecurringJob.AddOrUpdate<WeatherAlertJob>           ("weather-alert",         j 
 RecurringJob.AddOrUpdate<WeeklyReportJob>           ("weekly-reports",        j => j.ExecuteAsync(), "0 9 * * 1");
 RecurringJob.AddOrUpdate<SupplyChainAnomalyJob>     ("supply-chain-anomaly",  j => j.ExecuteAsync(), "0 6 * * *");
 RecurringJob.AddOrUpdate<DailyTelegramDigestJob>    ("daily-telegram-digest", j => j.ExecuteAsync(), "0 7 * * *", new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+RecurringJob.AddOrUpdate<SubsidyDisbursementJob>    ("subsidy-disbursement",  j => j.ExecuteAsync(), Cron.Hourly);
 RecurringJob.AddOrUpdate<CleanupExpiredCodesJob>    ("cleanup-codes",         j => j.ExecuteAsync(), Cron.Hourly);
 RecurringJob.AddOrUpdate<CleanupExpiredRefreshTokensJob>("cleanup-refresh",   j => j.ExecuteAsync(), Cron.Daily);
 
@@ -275,6 +291,7 @@ app.UseSwaggerUI(c =>
 });
 
 app.UseCors("AllowFrontend");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<InternalUserContextMiddleware>();
 app.UseAuthorization();
