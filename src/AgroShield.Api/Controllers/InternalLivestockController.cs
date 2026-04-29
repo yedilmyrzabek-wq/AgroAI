@@ -158,6 +158,117 @@ public class InternalLivestockController(
         });
     }
 
+    [HttpPost("count-from-url")]
+    public async Task<IActionResult> CountFromUrl([FromBody] CountFromUrlRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.ImageUrl))
+            return BadRequest(new { error = "image_url is required" });
+        if (request.FarmId == Guid.Empty)
+            return BadRequest(new { error = "farm_id is required" });
+
+        var farm = await db.Farms.FirstOrDefaultAsync(f => f.Id == request.FarmId, ct);
+        if (farm is null)
+            return NotFound(new { error = "not_found", message = "Farm not found" });
+
+        var livestockType = string.IsNullOrWhiteSpace(request.ExpectedClass) ? "sheep" : request.ExpectedClass;
+        var isFullRecount = string.Equals(request.Mode, "full_recount", StringComparison.OrdinalIgnoreCase);
+        var eventType = isFullRecount ? "cv_full_recount" : "cv_increment";
+
+        JsonElement mlResult;
+        try
+        {
+            var client = factory.CreateClient("LivestockMonitor");
+            var resp = await client.PostAsJsonAsync("/count-livestock-by-url", new
+            {
+                image_url = request.ImageUrl,
+                farm_id = request.FarmId.ToString(),
+                expected_class = livestockType,
+            }, SnakeOpts, ct);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync(ct);
+                logger.LogWarning("LivestockMonitor count-livestock-by-url returned {Status}: {Body}", resp.StatusCode, err);
+                return StatusCode(502, new { error = "ml_error", status = (int)resp.StatusCode, body = err });
+            }
+            mlResult = await resp.Content.ReadFromJsonAsync<JsonElement>(SnakeOpts, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "LivestockMonitor count-livestock-by-url unavailable");
+            mlResult = JsonSerializer.Deserialize<JsonElement>(
+                """{"total":0,"by_class":{},"boxes":[],"is_mock":true}""");
+        }
+
+        var mlTotal = mlResult.TryGetProperty("total", out var dc) ? dc.GetInt32() : 0;
+        var boxesRaw = mlResult.TryGetProperty("boxes", out var b) ? b.GetRawText() : "[]";
+
+        var livestock = await GetOrCreateLivestockAsync(request.FarmId, livestockType, request.DeclaredCount ?? 0, ct);
+        var headCountBefore = livestock.LastDetectedCount ?? livestock.DeclaredCount;
+        var headCountAfter = isFullRecount ? mlTotal : headCountBefore + mlTotal;
+        var delta = headCountAfter - headCountBefore;
+
+        var declared = request.DeclaredCount ?? livestock.DeclaredCount;
+        var anomaly = isFullRecount && declared > 0
+            && Math.Abs(declared - headCountAfter) / (double)declared > 0.2;
+
+        livestock.LastDetectedCount = headCountAfter;
+        livestock.LastDetectedAt = DateTime.UtcNow;
+        livestock.LastImageUrl = request.ImageUrl;
+        livestock.AnomalyDetected = anomaly;
+        livestock.UpdatedAt = DateTime.UtcNow;
+
+        var payload = new
+        {
+            event_type = eventType,
+            ml_total = mlTotal,
+            head_count_before = headCountBefore,
+            head_count_after = headCountAfter,
+            delta,
+            declared_count = declared,
+            photo_url = request.ImageUrl,
+            anomaly_detected = anomaly,
+            mode = request.Mode ?? "increment",
+            source = "url",
+        };
+        var payloadJson = JsonSerializer.Serialize(payload, SnakeOpts);
+
+        var ledgerEntry = await AppendLedgerAsync(
+            request.FarmId, livestockType, headCountAfter, eventType, payloadJson, ct);
+
+        if (anomaly)
+        {
+            db.Anomalies.Add(new Anomaly
+            {
+                Id = Guid.NewGuid(),
+                EntityType = Domain.Enums.AnomalyType.Sensor,
+                EntityId = livestock.Id,
+                FarmId = request.FarmId,
+                RiskScore = 70,
+                Reasons = [$"Livestock count anomaly: declared={declared}, detected={headCountAfter}"],
+                Status = Domain.Enums.AnomalyStatus.Active,
+                DetectedAt = DateTime.UtcNow,
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+        await MirrorToSupplyChainAsync(request.FarmId, livestockType, ledgerEntry, payload, ct);
+
+        return Ok(new
+        {
+            mode = isFullRecount ? "full_recount" : "increment",
+            event_type = eventType,
+            ml_total = mlTotal,
+            head_count_before = headCountBefore,
+            delta,
+            head_count_after = headCountAfter,
+            declared_count = declared,
+            anomaly_detected = anomaly,
+            photo_url = request.ImageUrl,
+            boxes = JsonSerializer.Deserialize<JsonElement>(boxesRaw),
+        });
+    }
+
     [HttpPost("{farmId:guid}/events")]
     public async Task<IActionResult> AppendEvent(Guid farmId, [FromBody] LivestockEventRequest request, CancellationToken ct)
     {
@@ -416,6 +527,15 @@ public class CountFromImageRequest
     public string LivestockType { get; set; } = null!;
     public int? DeclaredCount { get; set; }
     public string Mode { get; set; } = "increment";
+}
+
+public class CountFromUrlRequest
+{
+    public string ImageUrl { get; set; } = null!;
+    public Guid FarmId { get; set; }
+    public string? ExpectedClass { get; set; }
+    public int? DeclaredCount { get; set; }
+    public string? Mode { get; set; }
 }
 
 public class DeclareRequest

@@ -10,7 +10,7 @@ namespace AgroShield.Api.Controllers;
 [ApiController]
 [Route("api/internal")]
 [InternalApiKey]
-public class InternalQueryController(AppDbContext db) : ControllerBase
+public class InternalQueryController(AppDbContext db, ILogger<InternalQueryController> logger) : ControllerBase
 {
     // ── Anomalies ──────────────────────────────────────────────────────────
 
@@ -23,37 +23,44 @@ public class InternalQueryController(AppDbContext db) : ControllerBase
         [FromQuery] int limit = 20,
         CancellationToken ct = default)
     {
-        var q = db.Anomalies.Include(a => a.Farm).AsQueryable();
-
-        if (!string.IsNullOrEmpty(status) && Enum.TryParse<AnomalyStatus>(status, true, out var st))
-            q = q.Where(a => a.Status == st);
-        if (month.HasValue) q = q.Where(a => a.DetectedAt.Month == month.Value);
-        if (year.HasValue)  q = q.Where(a => a.DetectedAt.Year == year.Value);
-        if (min_risk_score.HasValue) q = q.Where(a => a.RiskScore >= min_risk_score.Value);
-
-        var total = await q.CountAsync(ct);
-        var rows = await q.OrderByDescending(a => a.DetectedAt).Take(Math.Clamp(limit, 1, 100)).ToListAsync(ct);
-
-        // Lookup subsidy amounts for Subsidy-type anomalies
-        var subsidyIds = rows.Where(a => a.EntityType == AnomalyType.Subsidy).Select(a => a.EntityId).ToHashSet();
-        var subsidyAmounts = subsidyIds.Count > 0
-            ? await db.Subsidies.Where(s => subsidyIds.Contains(s.Id))
-                .ToDictionaryAsync(s => s.Id, s => s.Amount, ct)
-            : new Dictionary<Guid, decimal>();
-
-        var items = rows.Select(a => new
+        try
         {
-            id = a.Id,
-            farm_id = a.FarmId,
-            farm_name = a.Farm?.Name,
-            risk_score = a.RiskScore,
-            reason = a.Reasons.Length > 0 ? a.Reasons[0] : "Без указанной причины",
-            amount = a.EntityType == AnomalyType.Subsidy && subsidyAmounts.TryGetValue(a.EntityId, out var amt) ? amt : (decimal?)null,
-            status = a.Status.ToString(),
-            detected_at = a.DetectedAt,
-        });
+            var q = db.Anomalies.Include(a => a.Farm).AsQueryable();
 
-        return Ok(new { items, total });
+            if (!string.IsNullOrEmpty(status) && Enum.TryParse<AnomalyStatus>(status, true, out var st))
+                q = q.Where(a => a.Status == st);
+            if (month.HasValue) q = q.Where(a => a.DetectedAt.Month == month.Value);
+            if (year.HasValue)  q = q.Where(a => a.DetectedAt.Year == year.Value);
+            if (min_risk_score.HasValue) q = q.Where(a => a.RiskScore >= min_risk_score.Value);
+
+            var total = await q.CountAsync(ct);
+            var rows = await q.OrderByDescending(a => a.DetectedAt).Take(Math.Clamp(limit, 1, 100)).ToListAsync(ct);
+
+            var subsidyIds = rows.Where(a => a.EntityType == AnomalyType.Subsidy).Select(a => a.EntityId).ToHashSet();
+            var subsidyAmounts = subsidyIds.Count > 0
+                ? await db.Subsidies.Where(s => subsidyIds.Contains(s.Id))
+                    .ToDictionaryAsync(s => s.Id, s => s.Amount, ct)
+                : new Dictionary<Guid, decimal>();
+
+            var items = rows.Select(a => new
+            {
+                id = a.Id,
+                farm_id = a.FarmId,
+                farm_name = a.Farm?.Name,
+                risk_score = a.RiskScore,
+                reason = (a.Reasons?.Length ?? 0) > 0 ? a.Reasons![0] : "Без указанной причины",
+                amount = a.EntityType == AnomalyType.Subsidy && subsidyAmounts.TryGetValue(a.EntityId, out var amt) ? amt : (decimal?)null,
+                status = a.Status.ToString(),
+                detected_at = a.DetectedAt,
+            });
+
+            return Ok(new { items, total });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "GetAnomalies failed");
+            return StatusCode(500, new { error = "internal_error", message = ex.Message, type = ex.GetType().Name });
+        }
     }
 
     // ── Farms list ─────────────────────────────────────────────────────────
@@ -114,27 +121,49 @@ public class InternalQueryController(AppDbContext db) : ControllerBase
     [HttpGet("subsidies/stats")]
     public async Task<IActionResult> SubsidiesStats(CancellationToken ct)
     {
-        var all = await db.Subsidies.Include(s => s.Farm).ToListAsync(ct);
-        var suspicious = all.Where(s => s.ActiveAreaFromNdvi.HasValue && s.ActiveAreaFromNdvi < s.DeclaredArea * 0.7m).ToList();
-
-        var byRegion = all
-            .GroupBy(s => s.Farm?.Region ?? "Unknown")
-            .ToDictionary(
-                g => g.Key,
-                g => new
-                {
-                    count = g.Count(),
-                    suspicious = g.Count(s => s.ActiveAreaFromNdvi.HasValue && s.ActiveAreaFromNdvi < s.DeclaredArea * 0.7m),
-                });
-
-        return Ok(new
+        try
         {
-            total_count = all.Count,
-            total_amount = all.Sum(s => s.Amount),
-            suspicious_count = suspicious.Count,
-            suspicious_amount = suspicious.Sum(s => s.Amount),
-            by_region = byRegion,
-        });
+            // Project to in-memory shape first to avoid loading nav-property graphs that may have schema drift
+            var all = await db.Subsidies
+                .Select(s => new
+                {
+                    s.Id,
+                    s.Amount,
+                    s.DeclaredArea,
+                    s.ActiveAreaFromNdvi,
+                    Region = s.Farm != null ? s.Farm.Region : "Unknown",
+                })
+                .ToListAsync(ct);
+
+            bool IsSuspicious(decimal? active, decimal declared) =>
+                active.HasValue && active.Value < declared * 0.7m;
+
+            var suspicious = all.Where(s => IsSuspicious(s.ActiveAreaFromNdvi, s.DeclaredArea)).ToList();
+
+            var byRegion = all
+                .GroupBy(s => s.Region ?? "Unknown")
+                .ToDictionary(
+                    g => g.Key,
+                    g => new
+                    {
+                        count = g.Count(),
+                        suspicious = g.Count(s => IsSuspicious(s.ActiveAreaFromNdvi, s.DeclaredArea)),
+                    });
+
+            return Ok(new
+            {
+                total_count = all.Count,
+                total_amount = all.Sum(s => s.Amount),
+                suspicious_count = suspicious.Count,
+                suspicious_amount = suspicious.Sum(s => s.Amount),
+                by_region = byRegion,
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "SubsidiesStats failed");
+            return StatusCode(500, new { error = "internal_error", message = ex.Message, type = ex.GetType().Name });
+        }
     }
 
     // ── Plant diagnoses today ──────────────────────────────────────────────
