@@ -4,6 +4,7 @@ using AgroShield.Domain.Entities;
 using AgroShield.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -69,23 +70,38 @@ public class InternalLivestockController(
             logger.LogWarning(ex, "Storage upload failed, proceeding without photo_url");
         }
 
-        // Call livestock-monitor
+        // Call livestock-monitor — ML expects snake_case multipart (file, farm_id, expected_class, use_tta)
         JsonElement mlResult;
+        string? mlError = null;
         try
         {
             var client = factory.CreateClient("LivestockMonitor");
             using var content = new MultipartFormDataContent();
-            content.Add(new ByteArrayContent(fileBytes), "file", request.File.FileName);
+            var fileContent = new ByteArrayContent(fileBytes);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(request.File.ContentType ?? "image/jpeg");
+            content.Add(fileContent, "file", request.File.FileName);
             content.Add(new StringContent(request.FarmId.ToString()), "farm_id");
             content.Add(new StringContent(livestockType), "expected_class");
+            content.Add(new StringContent(request.UseTta ? "true" : "false"), "use_tta");
 
             var response = await client.PostAsync("/count-livestock", content, ct);
-            response.EnsureSuccessStatusCode();
-            mlResult = await response.Content.ReadFromJsonAsync<JsonElement>(SnakeOpts, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                logger.LogWarning("LivestockMonitor /count-livestock returned {Status}: {Body}", response.StatusCode, body);
+                mlError = $"ml_status_{(int)response.StatusCode}";
+                mlResult = JsonSerializer.Deserialize<JsonElement>(
+                    """{"total":0,"by_class":{},"boxes":[],"is_mock":true}""");
+            }
+            else
+            {
+                mlResult = await response.Content.ReadFromJsonAsync<JsonElement>(SnakeOpts, ct);
+            }
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "LivestockMonitor unavailable, using mock");
+            mlError = ex.Message;
             mlResult = JsonSerializer.Deserialize<JsonElement>(
                 """{"total":0,"by_class":{},"boxes":[],"is_mock":true}""");
         }
@@ -159,6 +175,8 @@ public class InternalLivestockController(
             anomaly_detected = anomaly,
             photo_url = photoUrl,
             boxes = JsonSerializer.Deserialize<JsonElement>(boxesRaw),
+            ml_meta = mlResult,
+            ml_error = mlError,
         });
     }
 
@@ -578,6 +596,10 @@ public class CountFromImageRequest
     public int? DeclaredCount { get; set; }
 
     public string Mode { get; set; } = "increment";
+
+    [FromForm(Name = "use_tta")]
+    [JsonPropertyName("use_tta")]
+    public bool UseTta { get; set; }
 }
 
 public class CountFromUrlRequest
