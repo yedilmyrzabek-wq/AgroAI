@@ -92,15 +92,16 @@ builder.Services.AddFluentValidationAutoValidation();
 var internalApiKey = builder.Configuration["Security:InternalApiKey"] ?? "";
 var mlSection = builder.Configuration.GetSection("MLServices");
 
+builder.Services.AddTransient<InternalKeyHandler>();
+
 void AddMlClient(string name, string? baseUrl, TimeSpan timeout)
 {
     builder.Services.AddHttpClient(name, c =>
     {
         if (!string.IsNullOrEmpty(baseUrl)) c.BaseAddress = new Uri(baseUrl);
         c.Timeout = timeout;
-        if (!string.IsNullOrEmpty(internalApiKey))
-            c.DefaultRequestHeaders.Add("X-Internal-Key", internalApiKey);
-    });
+    })
+    .AddHttpMessageHandler<InternalKeyHandler>();
 }
 
 AddMlClient("PlantCv",            mlSection["PlantCv"],            TimeSpan.FromSeconds(30));
@@ -118,9 +119,8 @@ var selfPort = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.Services.AddHttpClient("SelfInternal", c =>
 {
     c.BaseAddress = new Uri($"http://localhost:{selfPort}");
-    if (!string.IsNullOrEmpty(internalApiKey))
-        c.DefaultRequestHeaders.Add("X-Internal-Key", internalApiKey);
-});
+})
+.AddHttpMessageHandler<InternalKeyHandler>();
 
 // ── Auth ──────────────────────────────────────────────────────────────────
 var jwtSection = builder.Configuration.GetSection("Jwt");
